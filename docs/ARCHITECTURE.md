@@ -21,6 +21,21 @@ lead and see precisely why it scored the way it did, and what the system did *no
 That last part is the product. Lead databases are a commodity; defensible, auditable
 *reasoning over evidence* is not.
 
+## 1a. Decided scope for M0
+
+Four questions were settled before implementation. They do not change the architecture — every
+component below survives — but they sharply narrow what gets built first. Consequences are
+detailed in [§15](#15-decisions-and-what-they-change).
+
+| Decision | Choice |
+|---|---|
+| Geography | **US-only for M0** |
+| Data strategy | **Web-first, open registries as the identity spine** |
+| Output shape | **Tens of leads, deep dossiers** |
+| Name | **LeadMoor retained** |
+
+---
+
 ## 2. The three design commitments
 
 Everything below follows from three decisions. If we hold these, the product works. If we
@@ -209,9 +224,9 @@ not "public vs. private" but "logged-out and un-circumvented vs. anything else."
 
 | Tier | Category | Examples | Posture |
 |------|----------|----------|---------|
-| **A** | Licensed APIs | People Data Labs, Coresignal, Apollo, Crunchbase, Crustdata | Contractual permission. **Read redistribution terms before building the connector** — several prohibit derivative databases or re-export, which directly constrains what we may put in a CSV. |
-| **B** | Open registries & government data | SEC EDGAR, UK Companies House, GLEIF (LEI, CC0), USPTO, SAM.gov, EU business registers | Explicitly open. Highest trust tier for survivorship. Cheap. Start here. |
-| **C** | Official search APIs + logged-out first-party fetch | Exa, Brave Search API, Serper; company sites, careers pages, press releases, docs | Permitted with robots.txt respect, rate limiting, honest user-agent, no login, no anti-bot circumvention. |
+| **A** | Licensed APIs *(none in M0)* | People Data Labs, Coresignal, Apollo, Crunchbase, Crustdata | Contractual permission. **Read redistribution terms before building the connector** — several prohibit derivative databases or re-export, which directly constrains what we may put in a CSV. |
+| **B** | Open registries & government data | **M0:** SEC EDGAR, GLEIF (LEI, CC0), USPTO, SAM.gov. *Later:* UK Companies House, EU business registers | Explicitly open. Highest trust tier for survivorship. Cheap. Start here. |
+| **C** | Official search APIs + logged-out first-party fetch | **M0:** Exa or Brave Search API; company sites, team and careers pages, press releases, GitHub | Permitted with robots.txt respect, rate limiting, honest user-agent, no login, no anti-bot circumvention. |
 | **D** | **Excluded by policy** | Logged-in social scraping, anti-bot circumvention, CAPTCHA solving, consumer data brokers, scraped datasets of unknown provenance, personal mobile/home addresses | Blocked in code. No connector may be registered in this tier. |
 
 Tier D is not a warning — the policy engine has no code path that permits it.
@@ -349,7 +364,7 @@ the first customer, the first domain, and the first contract.
 
 | Phase | Goal | Done when |
 |---|---|---|
-| **M0** | Walking skeleton, evidence chain proven end to end | One real request → spec → Tier B + Tier C connectors → evidence → naive resolution → rubric score → CSV, with every field traceable to a URL |
+| **M0** | Walking skeleton, evidence chain proven end to end | One US request → 20–50 leads with named people, full rubric coverage, and every field traceable to a stored document. Tier B + C only. Suppression and deletion live |
 | **M1** | Quality | Real ER with review queue, waterfall enrichment, people discovery, email verification, dossier UI |
 | **M2** | Compliance hardening | Policy engine at all three gates, suppression, DSAR, retention purge, audit log |
 | **M3** | Learning | Feedback → weight calibration, signal/trigger sources, CRM push, scheduled monitoring runs |
@@ -370,19 +385,83 @@ exported CSV cell back to a byte range in a stored document. Every later phase a
 | Users expecting instant results | Medium | Runs are async with streaming partial results, not request/response |
 | Vendor lock-in on data providers | Low | Every provider sits behind a port; waterfall design assumes substitution |
 
-## 15. Open questions
+## 15. Decisions and what they change
 
-These change build order rather than architecture, and are worth settling before M0:
+### US-only for M0
 
-1. **Geography.** EU/UK in scope from day one materially raises compliance weight. US-only
-   is a lighter M0.
-2. **Data strategy.** Licensed-provider backbone (faster, costs per record, ToS-constrained
-   exports) versus web-first discovery (slower, cheaper at volume, fully ours). The design
-   supports both; the choice sets what gets built first.
-3. **Volume shape.** Tens of high-conviction leads with deep dossiers, or thousands with
-   thin evidence? This sets the funnel's economics.
-4. **Outreach.** If drafting or sending is ever in scope, EU AI Act Article 50 transparency
-   and CAN-SPAM attach, and the architecture needs a sending subsystem it does not have today.
+**Sources become:** SEC EDGAR (full-text search and submissions), GLEIF LEI records (CC0),
+USPTO, SAM.gov, plus Tier C search and first-party fetch. UK Companies House and the EU
+registers drop out of M0 and return whenever geography expands.
+
+**Compliance gets lighter, not absent.** CAN-SPAM replaces GDPR as the governing outreach
+regime, and the full legitimate-interest documentation apparatus can wait for M2. But roughly
+twenty US state privacy laws are in force by 2026, and while most carry a "publicly available
+information" exemption that covers much of what Tier B and Tier C return, **deletion rights
+still attach** — and inferences we generate are ours, not exempt public record.
+
+So the M0 compliance cut is:
+
+- **Keep in M0:** suppression service, provenance on every claim, and a deletion endpoint over
+  the claim store. Once claims exist these are nearly free, and each one is expensive to
+  retrofit.
+- **Defer to M2:** automated retention purge, per-jurisdiction legal-basis records, the full
+  DSAR workflow with identity verification.
+
+### Web-first, registries as the identity spine
+
+No Tier A connector ships in M0. Two consequences follow, and the second is the one that
+matters.
+
+**Entity resolution carries more weight.** Without a provider handing us canonical IDs, the
+identifier ladder in §6 *is* the resolution strategy. SEC CIK and GLEIF LEI become the strong
+keys; verified primary domain does the rest. This is workable — it is also why `Resolver` is a
+port with a Splink escape hatch.
+
+**Contact discovery is the genuinely hard part.** Web-first company discovery is well-trodden.
+Web-first *people* discovery is not. The honest sources are company team and about pages, press
+releases, SEC filings (officers and directors), conference speaker lists, job postings, GitHub,
+and patents (inventors). Names and roles are reachable this way. **Verified work email often is
+not.**
+
+The recommended M0 posture, given we have already ruled out catch-all pattern guessing:
+
+> A lead is company + named person + role evidence. Work email is a best-effort field, marked
+> `unverified` when it cannot be confirmed, and never fabricated from a pattern.
+
+If that proves too thin in practice, the narrow fix is a **single Tier A connector used only for
+email resolution**, sitting behind `EnrichmentConnector` like any other. That is a swappable
+dependency on one field, not an abandonment of the web-first stance — and it is a decision worth
+making with M0 evidence in hand rather than now.
+
+### Tens of leads, deep dossiers
+
+This is the choice that best fits the evidence differentiator, and it relaxes the cost pressure
+that shaped §5.
+
+- **Model tier moves up.** At tens of leads per run, Opus for per-lead criterion judging is
+  affordable and better. Sonnet becomes the fallback rather than the default.
+- **Corroboration becomes a requirement, not a nicety.** Any criterion driving a
+  disqualification requires **two independent sources**. At this volume we can afford it, and a
+  wrongly-disqualified lead is invisible to the user unless we surface it.
+- **Full rubric coverage per lead** is the target, with the coverage figure from §4 expected
+  near 100% rather than merely reported.
+- **The review queue is central**, not an M1 nicety — a human sees every lead at this volume.
+
+**What M0 therefore does not need:** bulk export tooling, aggressive prompt-cache optimization,
+the connector SDK, multi-tenant isolation, and the elaborate budget governor. A simple hard
+ceiling per run suffices.
+
+### LeadMoor retained
+
+No action. Technical separation stands on its own via ADR-0001, and the concern is recorded
+there should positioning change later.
+
+### Revised M0 definition of done
+
+One real US request produces twenty to fifty leads, each with a named person, role evidence,
+full rubric coverage, and a dossier in which **every field traces to a stored document and a
+byte range**. Suppression and deletion work. Nothing in the run touched a Tier D source, because
+no such code path exists.
 
 ---
 

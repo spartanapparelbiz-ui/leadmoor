@@ -58,6 +58,41 @@ body{
   color:var(--muted); border:1px solid var(--rule); border-radius:2px; padding:5px 10px; background:var(--surface)}
 .meta span b{color:var(--ink-2); font-weight:500}
 
+/* ── decided scope ────────────────────────── */
+.decided{margin-top:26px; border:1px solid var(--rule); border-radius:3px; overflow:hidden; background:var(--surface)}
+.decided .hd{background:var(--accent-soft); padding:8px 16px; border-bottom:1px solid var(--rule);
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10.5px; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--accent-ink)}
+.decided .row{display:grid; grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:760px){ .decided .row{grid-template-columns:repeat(2,minmax(0,1fr))} }
+.decided .cell{padding:14px 16px; border-right:1px solid var(--rule)}
+.decided .cell:last-child{border-right:none}
+@media (max-width:760px){ .decided .cell:nth-child(2n){border-right:none}
+  .decided .cell:nth-child(-n+2){border-bottom:1px solid var(--rule)} }
+.decided .cell span{display:block; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:4px}
+.decided .cell b{font-size:.94rem; font-weight:700; color:var(--ink); line-height:1.3; display:block}
+
+/* ── decision blocks ──────────────────────── */
+.dec{border-left:2px solid var(--rule); padding-left:22px; margin-bottom:34px}
+.dec.key{border-left-color:var(--copper)}
+.dec h3{margin-top:0; font-size:1.06rem; font-family:Spectral,Georgia,serif; font-weight:600}
+.dec .tag{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:9.5px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--copper); background:var(--copper-soft);
+  padding:2px 6px; border-radius:2px; margin-left:8px; vertical-align:2px; white-space:nowrap}
+blockquote{margin:0 0 1.05em; padding:14px 20px; background:var(--surface); border:1px solid var(--rule);
+  border-left:3px solid var(--copper); border-radius:0 3px 3px 0; max-width:64ch}
+blockquote p{margin:0; font-family:Spectral,Georgia,serif; font-size:1.04rem; font-style:italic; color:var(--ink-2)}
+.split{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--rule);
+  border:1px solid var(--rule); border-radius:3px; overflow:hidden; margin-bottom:1.2em; max-width:66ch}
+@media (max-width:620px){ .split{grid-template-columns:minmax(0,1fr)} }
+.split div{background:var(--surface); padding:16px 18px}
+.split strong{display:block; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px;
+  letter-spacing:.12em; text-transform:uppercase; margin-bottom:8px}
+.split .keep strong{color:var(--accent)} .split .defer strong{color:var(--muted)}
+.split ul{margin:0; padding-left:1.05em; font-size:.9rem; color:var(--ink-2)}
+.split li{margin-bottom:.3em}
+
 /* ── nav rail ─────────────────────────────── */
 nav{position:sticky; top:24px; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11.5px}
 nav ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
@@ -203,6 +238,15 @@ footer a:hover{color:var(--accent)}
       <span><b>MOOR coupling</b> &nbsp;none · none possible</span>
       <span><b>Date</b> &nbsp;2026-08-20</span>
     </div>
+    <div class="decided">
+      <div class="hd">Scope settled before implementation</div>
+      <div class="row">
+        <div class="cell"><span>Geography</span><b>US-only for M0</b></div>
+        <div class="cell"><span>Data strategy</span><b>Web-first, registries as spine</b></div>
+        <div class="cell"><span>Output shape</span><b>Tens of leads, deep dossiers</b></div>
+        <div class="cell"><span>Name</span><b>LeadMoor retained</b></div>
+      </div>
+    </div>
   </header>
 
   <nav aria-label="Contents">
@@ -220,7 +264,7 @@ footer a:hover{color:var(--accent)}
       <li><a href="#moor">Separation</a></li>
       <li><a href="#phases">Delivery</a></li>
       <li><a href="#risks">Risks</a></li>
-      <li><a href="#open">Open questions</a></li>
+      <li><a href="#open">Decisions</a></li>
     </ol>
   </nav>
 
@@ -493,13 +537,13 @@ footer a:hover{color:var(--accent)}
           <thead><tr><th>Tier</th><th>Category</th><th>Examples</th><th>Posture</th></tr></thead>
           <tbody>
             <tr><td class="tier b">B</td><td><strong>Open registries &amp; government data</strong></td>
-              <td>SEC EDGAR, UK Companies House, GLEIF (CC0), USPTO, SAM.gov, EU business registers</td>
+              <td><strong>M0:</strong> SEC EDGAR, GLEIF (CC0), USPTO, SAM.gov. <em>Later:</em> UK Companies House, EU registers</td>
               <td>Explicitly open. Highest trust tier for survivorship, and cheap. <strong>Start here.</strong></td></tr>
-            <tr><td class="tier a">A</td><td><strong>Licensed APIs</strong></td>
+            <tr><td class="tier a">A</td><td><strong>Licensed APIs</strong> <em>(none in M0)</em></td>
               <td>People Data Labs, Coresignal, Apollo, Crunchbase, Crustdata</td>
               <td>Contractual permission. Read redistribution terms <em>before</em> building each connector — several forbid derivative databases or re-export, which directly constrains what may land in a CSV.</td></tr>
             <tr><td class="tier c">C</td><td><strong>Search APIs + logged-out fetch</strong></td>
-              <td>Exa, Brave Search API, Serper; company sites, careers pages, press releases, docs</td>
+              <td><strong>M0:</strong> Exa or Brave Search API; company sites, team and careers pages, press releases, GitHub</td>
               <td>Permitted with robots.txt respect, rate limiting, an honest user-agent, no login, and no anti-bot circumvention.</td></tr>
             <tr class="excluded"><td class="tier d">D</td><td><strong>Excluded by policy</strong></td>
               <td>Logged-in social scraping, anti-bot or CAPTCHA circumvention, consumer data brokers, datasets of unknown provenance, personal mobile and home addresses</td>
@@ -635,10 +679,9 @@ export · suppression · dsar_request · audit_log · feedback</pre>
       <h2>Phases</h2>
       <div class="phases">
         <div class="phase"><span class="m">M0</span><div><strong>Walking skeleton</strong>
-          <span>One real request → spec → Tier B and Tier C connectors → evidence → naive resolution →
-          rubric score → CSV, with every field traceable to a URL. This deliberately proves the hardest
-          thing first: that a claim survives the trip from an exported cell back to a byte range in a
-          stored document.</span></div></div>
+          <span>One US request produces 20–50 leads, each with a named person, role evidence, full rubric
+          coverage, and every field traceable to a stored document and byte range. Tier B and C sources
+          only; suppression and deletion live. This deliberately proves the hardest thing first.</span></div></div>
         <div class="phase"><span class="m">M1</span><div><strong>Quality</strong>
           <span>Real entity resolution with a review queue, waterfall enrichment, people discovery,
           email verification, dossier interface.</span></div></div>
@@ -672,15 +715,80 @@ export · suppression · dsar_request · audit_log · feedback</pre>
     </section>
 
     <section id="open">
-      <span class="sec-label">Open questions</span>
-      <h2>Worth settling before M0</h2>
-      <p>These change build order rather than architecture — the design supports either answer in each case.</p>
-      <div class="qs">
-        <div class="q"><div><strong>Geography</strong><span>EU and UK in scope from day one materially raises compliance weight. US-only is a lighter M0.</span></div></div>
-        <div class="q"><div><strong>Data strategy</strong><span>A licensed-provider backbone is faster but costs per record and constrains exports. Web-first discovery is slower and cheaper at volume, and fully ours.</span></div></div>
-        <div class="q"><div><strong>Volume shape</strong><span>Tens of high-conviction leads with deep dossiers, or thousands with thin evidence? This sets the funnel's economics.</span></div></div>
-        <div class="q"><div><strong>Outreach</strong><span>If drafting or sending ever comes into scope, Article 50 transparency and CAN-SPAM attach, and the architecture needs a sending subsystem it does not have today.</span></div></div>
+      <span class="sec-label">Decisions</span>
+      <h2>What was settled, and what it changes</h2>
+      <p>Four questions were answered before implementation. None of them changes the architecture —
+      every component above survives — but each sharply narrows what gets built first.</p>
+
+      <div class="dec">
+        <h3>US-only for M0</h3>
+        <p><strong>Sources become</strong> SEC EDGAR, GLEIF, USPTO, and SAM.gov, plus search and
+        first-party fetch. Companies House and the EU registers drop out and return when geography does.</p>
+        <p><strong>Compliance gets lighter, not absent.</strong> CAN-SPAM replaces GDPR as the governing
+        outreach regime. But roughly twenty US state privacy laws are in force by 2026, and while most
+        carry a “publicly available information” exemption covering much of what Tier B and C return,
+        deletion rights still attach — and the inferences we generate are ours, not exempt public record.</p>
+        <div class="split">
+          <div class="keep"><strong>Keep in M0</strong><ul>
+            <li>Suppression service</li><li>Provenance on every claim</li>
+            <li>Deletion endpoint over the claim store</li></ul></div>
+          <div class="defer"><strong>Defer to M2</strong><ul>
+            <li>Automated retention purge</li><li>Per-jurisdiction legal-basis records</li>
+            <li>Full DSAR workflow with identity verification</li></ul></div>
+        </div>
+        <p>The first column is nearly free once claims exist, and expensive to retrofit. That asymmetry
+        is the whole reason for the split.</p>
       </div>
+
+      <div class="dec key">
+        <h3>Web-first, registries as the identity spine <span class="tag">carries a real cost</span></h3>
+        <p>No Tier A connector ships in M0. Two consequences follow, and the second is the one that matters.</p>
+        <p><strong>Entity resolution carries more weight.</strong> With no provider handing us canonical
+        IDs, the identifier ladder <em>is</em> the resolution strategy: SEC CIK and GLEIF LEI become the
+        strong keys and verified primary domain does the rest. Workable — and exactly why
+        <code>Resolver</code> is a port with a Splink escape hatch behind it.</p>
+        <p><strong>Contact discovery is the genuinely hard part.</strong> Web-first company discovery is
+        well-trodden; web-first <em>people</em> discovery is not. Honest sources are team and about pages,
+        press releases, SEC officer filings, speaker lists, job postings, GitHub, and patent inventors.
+        Names and roles are reachable that way. Verified work email frequently is not — and we have
+        already ruled out guessing it from a pattern.</p>
+        <blockquote><p>A lead is company + named person + role evidence. Work email is best-effort,
+        marked unverified when it cannot be confirmed, and never fabricated.</p></blockquote>
+        <p>If that proves too thin in practice, the narrow fix is a <strong>single Tier A connector used
+        only for email resolution</strong>, sitting behind <code>EnrichmentConnector</code> like any other
+        — a swappable dependency on one field rather than an abandonment of the stance. That call is
+        better made with M0 evidence in hand than now.</p>
+      </div>
+
+      <div class="dec">
+        <h3>Tens of leads, deep dossiers</h3>
+        <p>This fits the evidence differentiator best, and it relaxes the cost pressure that shaped the
+        scoring design.</p>
+        <ul>
+          <li><strong>Model tier moves up.</strong> At tens of leads per run, Opus for per-lead criterion
+          judging is affordable and better; Sonnet becomes the fallback rather than the default.</li>
+          <li><strong>Corroboration becomes a requirement.</strong> Any criterion driving a
+          disqualification needs two independent sources — affordable at this volume, and a wrongly
+          disqualified lead is otherwise invisible to the user.</li>
+          <li><strong>Full rubric coverage per lead</strong> is the target, with coverage expected near
+          100% rather than merely reported.</li>
+          <li><strong>The review queue is central</strong>, not an M1 nicety — a human sees every lead.</li>
+        </ul>
+        <p><strong>What M0 therefore does not need:</strong> bulk export tooling, aggressive prompt-cache
+        optimization, the connector SDK, multi-tenant isolation, or the elaborate budget governor. A
+        simple hard ceiling per run suffices.</p>
+      </div>
+
+      <div class="dec">
+        <h3>LeadMoor retained</h3>
+        <p>No action. Technical separation stands on its own through ADR-0001, and the positioning
+        concern is recorded there should it change later.</p>
+      </div>
+
+      <div class="pull"><p><strong>Revised M0 definition of done.</strong> One real US request produces
+      twenty to fifty leads, each with a named person, role evidence, full rubric coverage, and a dossier
+      in which every field traces to a stored document and a byte range. Suppression and deletion work.
+      Nothing in the run touched a Tier D source — because no such code path exists.</p></div>
     </section>
 
   </main>
