@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { newId } from '@leadmoor/core';
 import {
+  AuditLog,
   WorkspaceScope,
   company as companyTable,
   criterionVerdict,
@@ -219,6 +220,35 @@ describe('membership decides access, not the id in the URL', () => {
     const listed = await auth.workspacesFor(mine.userId);
     expect(listed).toHaveLength(1);
     expect(listed[0]?.id).toBe(mine.workspaceId);
+  });
+});
+
+describe('a run’s own lifecycle is visible to the workspace that owns it', () => {
+  it('scopes run.created, run.started, and every stage event to the run’s workspace', async () => {
+    const { a, b } = await twoWorkspaces();
+
+    // Written the way the engine writes them: scoped to the run's owner. That the engine actually
+    // does so is asserted against a real run in pipeline.test.ts.
+    const scoped = new AuditLog(t.db).forWorkspace(a.workspaceId);
+    await scoped.record('run.created', { runId: a.runId, detail: { specId: a.specId } });
+    await scoped.record('run.started', { runId: a.runId });
+    await scoped.record('run.stage_failed', { runId: a.runId, subject: 'discovery' });
+
+    const mine = await a.scope.listAudit({ runId: a.runId });
+    expect(mine.map((e) => e.action)).toEqual(
+      expect.arrayContaining(['run.created', 'run.started', 'run.stage_failed']),
+    );
+
+    // And invisible to anyone else, even naming the run id directly.
+    expect(await b.scope.listAudit({ runId: a.runId })).toHaveLength(0);
+  });
+
+  it('leaves an unowned event visible to nobody rather than to everybody', async () => {
+    const { a, b } = await twoWorkspaces();
+    await new AuditLog(t.db).record('run.created', { runId: a.runId });
+
+    expect(await a.scope.listAudit({ runId: a.runId })).toHaveLength(0);
+    expect(await b.scope.listAudit({ runId: a.runId })).toHaveLength(0);
   });
 });
 

@@ -220,7 +220,10 @@ try {
       await demoPage.waitForTimeout(400);
       const provenance = await evidenceRow.innerText();
       check('provenance discloses the content hash', /[0-9a-f]{32}/.test(provenance));
-      check('provenance discloses the source and retrieval time', /Source/.test(provenance) && /Retrieved/.test(provenance));
+      check(
+        'provenance discloses the source and retrieval time',
+        /source/i.test(provenance) && /retrieved/i.test(provenance),
+      );
 
       // The quote the UI shows must exist in the stored document, byte for byte.
       const bare = quote.replace(/^[“"]|[”"]$/g, '').slice(0, 60).replace(/'/g, "''");
@@ -338,7 +341,10 @@ try {
 
   /* ── 11. command menu, keyboard, and mobile ────────────────────────── */
   console.log('\n11. Command menu, keyboard, and mobile');
+  // The shortcut is a client listener, so it exists only once the shell has hydrated.
   await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  await page.locator('.sidebar').waitFor({ state: 'visible' });
+  await page.waitForTimeout(1200);
   await page.keyboard.press('Control+k');
   await page.waitForTimeout(500);
   check('⌘K opens the command menu', await page.getByRole('dialog', { name: 'Command menu' }).isVisible());
@@ -368,8 +374,13 @@ try {
   const missing = await page.goto(`${BASE}/companies/00000000-0000-0000-0000-000000000000`, {
     waitUntil: 'domcontentloaded',
   });
+  await page.waitForTimeout(1200);
   check('a missing record 404s cleanly', missing?.status() === 404, String(missing?.status()));
   check('the 404 page is helpful', await page.getByText(/Not found/i).first().isVisible());
+  check(
+    'the 404 keeps the app shell so navigation survives',
+    await page.getByRole('navigation', { name: 'Main navigation' }).isVisible(),
+  );
 
   await page.goto(`${BASE}/settings/providers`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(600);

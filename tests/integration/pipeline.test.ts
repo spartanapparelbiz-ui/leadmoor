@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { newId, suppressionKey } from '@leadmoor/core';
 import {
   AuditLog,
+  WorkspaceScope,
   claim as claimTable,
   company as companyTable,
   criterionVerdict as verdictTable,
@@ -224,6 +225,25 @@ describe('full pipeline against permitted sources', () => {
   it('finishes the run without failing', async () => {
     const row = (await services.db.select().from(runTable).where(eq(runTable.id, runId)).limit(1))[0];
     expect(['completed', 'partial']).toContain(row?.status);
+  });
+
+  it('records the run’s own lifecycle inside the owning workspace', async () => {
+    // Written unscoped, these land with a null workspace and are visible to nobody — which makes a
+    // run's own history disappear from the audit log of the workspace that ran it.
+    const scope = new WorkspaceScope(services.db, workspaceId);
+    const actions = (await scope.listAudit({ runId })).map((e) => e.action);
+
+    expect(actions).toContain('run.created');
+    expect(actions).toContain('run.started');
+    expect(actions).toContain('run.stage_started');
+    expect(actions).toContain('run.stage_completed');
+    expect(actions).toContain('run.completed');
+  });
+
+  it('shows a different workspace none of that history', async () => {
+    const other = await seedWorkspace(services.db, { email: 'outsider@example.test' });
+    const scope = new WorkspaceScope(services.db, other.workspaceId);
+    expect(await scope.listAudit({ runId })).toHaveLength(0);
   });
 
   it('actually fetched the company pages through the real fetcher', () => {

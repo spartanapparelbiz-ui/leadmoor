@@ -9,6 +9,7 @@ import {
 } from '@leadmoor/core';
 import { nullLogger } from '@leadmoor/core';
 import {
+  AuditLog,
   company as companyTable,
   leadSpec as leadSpecTable,
   run as runTable,
@@ -81,7 +82,7 @@ export class RunEngine {
     });
     await initializeStages(this.services.db, runId);
     await this.queue.enqueue({ runId, stage: STAGE_ORDER[0] as (typeof STAGE_ORDER)[number] });
-    await this.services.audit.record('run.created', { runId, detail: { specId, name: spec.name } });
+    await this.auditFor(workspaceId).record('run.created', { runId, detail: { specId, name: spec.name } });
 
     return runId;
   }
@@ -118,7 +119,7 @@ export class RunEngine {
           .update(runTable)
           .set({ status: 'running', startedAt: new Date() })
           .where(eq(runTable.id, job.runId));
-        await this.services.audit.record('run.started', { runId: job.runId });
+        await this.auditFor(runRow.workspaceId).record('run.started', { runId: job.runId });
       }
 
       const workspaceId = runRow.workspaceId;
@@ -132,7 +133,7 @@ export class RunEngine {
       const runServices = this.services.forRun({ budget, runHosts, workspaceId });
 
       await markStage(this.services.db, job.runId, stage, 'running');
-      await this.services.audit.record('run.stage_started', { runId: job.runId, subject: stage });
+      await runServices.audit.record('run.stage_started', { runId: job.runId, subject: stage });
 
       const ctx: PipelineContext = {
         db: this.services.db,
@@ -156,7 +157,7 @@ export class RunEngine {
       await markStage(this.services.db, job.runId, stage, result.status, result.detail, result.error);
       await updateRunUsage(this.services.db, job.runId, budget);
       await this.queue.complete(job.id);
-      await this.services.audit.record('run.stage_completed', {
+      await runServices.audit.record('run.stage_completed', {
         runId: job.runId,
         subject: stage,
         detail: { status: result.status },
@@ -207,7 +208,7 @@ export class RunEngine {
         { attempts: job.attempts },
         message,
       );
-      await this.services.audit.record('run.stage_failed', {
+      await this.auditFor(await this.workspaceOf(job.runId)).record('run.stage_failed', {
         runId: job.runId,
         subject: stage,
         detail: { error: message, willRetry },
@@ -232,7 +233,7 @@ export class RunEngine {
   async cancel(runId: string): Promise<void> {
     await this.queue.cancelRun(runId);
     await this.finish(runId, 'cancelled', 'cancelled by user');
-    await this.services.audit.record('run.cancelled', { runId });
+    await this.auditFor(await this.workspaceOf(runId)).record('run.cancelled', { runId });
   }
 
   private async finish(runId: string, status: RunStatus, error: string | null): Promise<void> {
@@ -243,7 +244,27 @@ export class RunEngine {
 
     const action =
       status === 'completed' ? 'run.completed' : status === 'budget_exhausted' ? 'run.budget_exhausted' : 'run.failed';
-    await this.services.audit.record(action, { runId, detail: { status, error } });
+    await this.auditFor(await this.workspaceOf(runId)).record(action, { runId, detail: { status, error } });
+  }
+
+  /**
+   * An audit writer bound to a workspace.
+   *
+   * A null workspace is a bug elsewhere, not something to silently paper over — but the audit trail
+   * is the wrong place to throw, so the event is still written and stays invisible to every
+   * workspace, exactly as an unowned row should be.
+   */
+  private auditFor(workspaceId: string | null): AuditLog {
+    return workspaceId ? this.services.audit.forWorkspace(workspaceId) : this.services.audit;
+  }
+
+  private async workspaceOf(runId: string): Promise<string | null> {
+    const rows = await this.services.db
+      .select({ workspaceId: runTable.workspaceId })
+      .from(runTable)
+      .where(eq(runTable.id, runId))
+      .limit(1);
+    return rows[0]?.workspaceId ?? null;
   }
 
   /**

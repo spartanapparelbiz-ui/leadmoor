@@ -15,7 +15,7 @@
 import { eq } from 'drizzle-orm';
 import { newId } from '@leadmoor/core';
 import { AuthService } from '@leadmoor/auth';
-import { leadRequest, leadSpec as leadSpecTable, run as runTable } from '@leadmoor/db';
+import { leadRequest, leadSpec as leadSpecTable, run as runTable, suppression } from '@leadmoor/db';
 import { MemoryBlobStore } from '@leadmoor/evidence';
 import { HeuristicSpecCompiler } from '@leadmoor/llm';
 import { RunEngine, Services } from '@leadmoor/runtime';
@@ -171,6 +171,22 @@ async function main(): Promise<void> {
     const ctx = await auth.resolve(session.token);
     if (!ctx) throw new Error(`demo account ${email} exists but could not be resolved`);
     workspaceId = ctx.workspaceId;
+  }
+
+  /*
+   * Clear the demo workspace's do-not-contact list before seeding.
+   *
+   * Suppression is permanent by design and applies to future runs — which is correct, and which
+   * means a demo re-seeded after someone suppressed a lead would come back entirely suppressed.
+   * Resetting it is right for a development fixture and wrong for anything else, which is why it
+   * happens here in a script and nowhere in the application.
+   */
+  const cleared = await services.db
+    .delete(suppression)
+    .where(eq(suppression.workspaceId, workspaceId))
+    .returning({ id: suppression.id });
+  if (cleared.length > 0) {
+    console.log(`cleared ${cleared.length} suppression key(s) from the demo workspace`);
   }
 
   const compiled = new HeuristicSpecCompiler().compile(REQUEST);

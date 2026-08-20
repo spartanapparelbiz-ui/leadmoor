@@ -142,6 +142,10 @@ export function AppShell({
 
   return (
     <div className="app" data-collapsed={collapsed}>
+      <a href="#main" className="skiplink">
+        Skip to content
+      </a>
+
       {mobileOpen ? (
         <div
           className="scrim"
@@ -151,7 +155,7 @@ export function AppShell({
         />
       ) : null}
 
-      <aside className="sidebar" data-open={mobileOpen} aria-label="Main navigation">
+      <aside className="sidebar" data-open={mobileOpen}>
         <div className="sidebar__brand">
           <Brandmark />
           <span className="brandname">LeadMoor</span>
@@ -166,7 +170,7 @@ export function AppShell({
           </button>
         </div>
 
-        <nav className="sidebar__scroll">
+        <nav className="sidebar__scroll" aria-label="Main navigation">
           {PRIMARY.map(navLink)}
           <div className="sidebar__group t-label">Workflow</div>
           {SECONDARY.map(navLink)}
@@ -235,7 +239,7 @@ export function AppShell({
           </Link>
         </header>
 
-        {children}
+        <main id="main">{children}</main>
       </div>
 
       {cmdOpen ? <CommandMenu onClose={() => setCmdOpen(false)} /> : null}
