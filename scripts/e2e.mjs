@@ -393,7 +393,76 @@ try {
   const enrichment = await page.locator('body').innerText();
   check('enrichment states that no address is inferred', /never|not.*inferred|no pattern/i.test(enrichment));
 
-  console.log('\n13. Console health');
+  /* ── 13. saved lists ───────────────────────────────────────────────── */
+  console.log('\n13. Saved lists');
+  await page.goto(`${BASE}/searches`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(700);
+  const approved = page.locator('a.rowbtn').first();
+  if (await approved.count()) {
+    await approved.click();
+    await page.waitForURL(/\/searches\/[0-9a-f-]{36}/, { timeout: 20_000 });
+    await page.waitForTimeout(600);
+
+    const saveField = page.locator('#saved-name');
+    if (await saveField.count()) {
+      await saveField.fill(`E2E list ${STAMP}`);
+      await page.getByRole('button', { name: /Save as list/ }).click();
+      await page.waitForTimeout(2500);
+      check('saving a list confirms', await page.getByText(/Saved\./i).first().isVisible());
+
+      await page.goto(`${BASE}/lists`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(700);
+      // The delete button's screen-reader label repeats the name, so match the heading exactly.
+      check('the saved list appears', await page.getByText(`E2E list ${STAMP}`, { exact: true }).first().isVisible());
+
+      const savedRows = Number(psql(`select count(*) from saved_search where name = 'E2E list ${STAMP}'`) || '0');
+      check('the list was stored', savedRows === 1, String(savedRows));
+
+      await page.getByRole('button', { name: /Run again/ }).first().click();
+      await page.waitForURL(/\/runs\/[0-9a-f-]{36}/, { timeout: 60_000 });
+      check('re-running a list starts a fresh run', /\/runs\//.test(page.url()));
+
+      const rerunId = page.url().split('/runs/')[1].split(/[?#]/)[0];
+      const linked = psql(`select last_run_id from saved_search where name = 'E2E list ${STAMP}'`);
+      check('the list records the run it started', linked === rerunId, `${linked} vs ${rerunId}`);
+
+      await page.goto(`${BASE}/lists`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(700);
+      page.once('dialog', (d) => d.accept());
+      await page.getByRole('button', { name: new RegExp(`Delete E2E list ${STAMP}`) }).click();
+      await page.waitForTimeout(2500);
+      const remaining = Number(psql(`select count(*) from saved_search where name = 'E2E list ${STAMP}'`) || '0');
+      check('deleting a list removes it', remaining === 0, String(remaining));
+    } else {
+      console.log('  ! the spec is not approved yet — skipping saved-list checks');
+    }
+  }
+
+  /* ── 14. workspace switching ───────────────────────────────────────── */
+  console.log('\n14. Workspace switching');
+  await page.goto(`${BASE}/settings/workspace`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(700);
+  await page.locator('#ws-name').fill(`Second ${STAMP}`);
+  await page.getByRole('button', { name: /^Create$/ }).click();
+  await page.waitForTimeout(3000);
+  check('creating a workspace switches into it', await page.getByRole('heading', { name: `Second ${STAMP}` }).isVisible());
+
+  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(800);
+  check('the new workspace shows none of the old data', await page.getByText(/No leads yet/i).isVisible());
+
+  await page.locator('button.wsswitch').first().click();
+  await page.waitForTimeout(400);
+  const menuItems = await page.getByRole('menuitem').count();
+  check('the switcher lists both workspaces', menuItems >= 3, `${menuItems} items`);
+  await page.getByRole('menuitem').first().click();
+  await page.waitForTimeout(3000);
+  check(
+    'switching back restores the original workspace',
+    !(await page.getByRole('heading', { name: `Second ${STAMP}` }).isVisible()),
+  );
+
+  console.log('\n15. Console health');
   check('no unexpected console errors', errorsBeforeIntentional404 === 0, consoleErrors.slice(0, 3).join(' | '));
 } catch (error) {
   failed += 1;

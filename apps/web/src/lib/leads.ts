@@ -3,6 +3,7 @@ import type { LeadSpec } from '@leadmoor/core';
 import { parseLeadSpec } from '@leadmoor/core';
 import type { WorkspaceScope } from '@leadmoor/db';
 import { computeSubScores, type SubScore, type Verdict } from '@leadmoor/scoring';
+import { absoluteTime, relativeTime } from './format';
 
 export type { SubScore } from '@leadmoor/scoring';
 
@@ -28,6 +29,14 @@ export interface LeadView {
   person: { id: string; fullName: string; title: string | null } | null;
   subScores: SubScore[];
   sourceCount: number;
+  /**
+   * When this lead was produced, rendered server-side.
+   *
+   * Formatting it in the client component instead would recompute "2m ago" against a clock that
+   * has moved since the server rendered, which React reports as a hydration mismatch.
+   */
+  foundLabel: string;
+  foundAt: string;
 }
 
 /**
@@ -109,6 +118,8 @@ export async function loadLeadViews(
       person,
       subScores,
       sourceCount,
+      foundLabel: relativeTime(lead.createdAt),
+      foundAt: absoluteTime(lead.createdAt),
     };
   });
 }

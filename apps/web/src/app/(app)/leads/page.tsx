@@ -44,7 +44,12 @@ export default async function LeadsPage({
           secondary={{ href: '/runs', label: 'See run history' }}
         />
       ) : (
-        <LeadResults views={views} initialStatus={params.status} initialEmail={params.email} />
+        <LeadResults
+          views={views}
+          acrossRuns={!params.run}
+          initialStatus={params.status}
+          initialEmail={params.email}
+        />
       )}
     </div>
   );

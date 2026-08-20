@@ -62,7 +62,7 @@ const SECONDARY = [
 
 const ADMIN = [
   { href: '/settings/providers', label: 'Providers', icon: IconPlug },
-  { href: '/settings', label: 'Settings', icon: IconSettings },
+  { href: '/settings', label: 'Settings', icon: IconSettings, exact: true },
   { href: '/settings/workspace', label: 'Workspace', icon: IconLayers },
 ];
 

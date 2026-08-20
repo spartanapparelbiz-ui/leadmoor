@@ -35,7 +35,7 @@ function AddMember({ canAddOwner }: { canAddOwner: boolean }) {
         <label htmlFor="member-role" className="sr-only">
           Role
         </label>
-        <select id="member-role" name="role" className="select" defaultValue="member">
+        <select id="member-role" name="role" className="select" defaultValue="member" style={{ width: 130 }}>
           <option value="member">Member</option>
           <option value="admin">Admin</option>
           {canAddOwner ? <option value="owner">Owner</option> : null}

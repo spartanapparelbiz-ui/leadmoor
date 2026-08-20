@@ -14,9 +14,9 @@ import { IconColumns, IconFilter, IconSort } from '../Icons';
  * because "we could not establish this" is a result the user needs to see, not noise to hide.
  */
 
-type SortKey = 'score' | 'coverage' | 'company' | 'status';
+type SortKey = 'score' | 'coverage' | 'company' | 'status' | 'found';
 
-type ColumnKey = 'score' | 'company' | 'person' | 'title' | 'email' | 'why' | 'sources';
+type ColumnKey = 'score' | 'company' | 'person' | 'title' | 'email' | 'why' | 'sources' | 'found';
 
 /** `always` columns cannot be switched off — without them a row has nothing to identify it. */
 const COLUMNS: ReadonlyArray<{ key: ColumnKey; label: string; always?: boolean }> = [
@@ -27,6 +27,7 @@ const COLUMNS: ReadonlyArray<{ key: ColumnKey; label: string; always?: boolean }
   { key: 'email', label: 'Email' },
   { key: 'why', label: 'Why' },
   { key: 'sources', label: 'Sources' },
+  { key: 'found', label: 'Found' },
 ];
 
 const STATUS_FILTERS = [
@@ -45,11 +46,17 @@ const EMAIL_FILTERS = [
 export function LeadResults({
   views,
   runId,
+  acrossRuns,
   initialStatus,
   initialEmail,
 }: {
   views: LeadView[];
   runId?: string;
+  /**
+   * True on the cross-run view. The same company legitimately appears once per run it was found
+   * in, so without a date those rows read as duplicates rather than as a history.
+   */
+  acrossRuns?: boolean;
   initialStatus?: string;
   initialEmail?: string;
 }) {
@@ -59,7 +66,11 @@ export function LeadResults({
   const [sort, setSort] = useState<SortKey>('score');
   const [openId, setOpenId] = useState<string | null>(null);
   const [columns, setColumns] = useState<Set<ColumnKey>>(
-    new Set(['score', 'company', 'person', 'title', 'email', 'why']),
+    new Set<ColumnKey>(
+      acrossRuns
+        ? ['score', 'company', 'person', 'title', 'email', 'found']
+        : ['score', 'company', 'person', 'title', 'email', 'why'],
+    ),
   );
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -84,8 +95,14 @@ export function LeadResults({
       }
       if (sort === 'coverage') return b.lead.coverage - a.lead.coverage || b.lead.score - a.lead.score;
       if (sort === 'status') return a.lead.status.localeCompare(b.lead.status) || b.lead.score - a.lead.score;
-      // Default: score, then coverage — a 90 proven on more of the rubric outranks a thin 90.
-      return b.lead.score - a.lead.score || b.lead.coverage - a.lead.coverage;
+      if (sort === 'found') return b.lead.createdAt.getTime() - a.lead.createdAt.getTime();
+      // Default: score, then coverage — a 90 proven on more of the rubric outranks a thin 90 —
+      // then recency, so the newest evidence for an equal lead comes first.
+      return (
+        b.lead.score - a.lead.score ||
+        b.lead.coverage - a.lead.coverage ||
+        b.lead.createdAt.getTime() - a.lead.createdAt.getTime()
+      );
     });
     return sorted;
   }, [views, query, statuses, emails, sort]);
@@ -162,6 +179,7 @@ export function LeadResults({
             <option value="coverage">Evidence coverage</option>
             <option value="company">Company name</option>
             <option value="status">Status</option>
+            <option value="found">Most recent</option>
           </select>
         </div>
 
@@ -270,6 +288,7 @@ export function LeadResults({
                 <div className="row g-6 wrap" style={{ marginTop: 8 }}>
                   <StatusPill status={v.lead.status} />
                   <EmailPill status={v.lead.emailStatus} />
+                  {acrossRuns ? <span className="mono t-xs faint">{v.foundLabel}</span> : null}
                 </div>
                 {v.person ? (
                   <p className="t-sm" style={{ margin: '8px 0 0', textAlign: 'left' }}>
@@ -372,6 +391,12 @@ function LeadRow({
             return (
               <td key={key} className="mono t-sm">
                 {view.sourceCount}
+              </td>
+            );
+          case 'found':
+            return (
+              <td key={key} className="mono t-xs faint nowrap" title={view.foundAt}>
+                {view.foundLabel}
               </td>
             );
           default:
