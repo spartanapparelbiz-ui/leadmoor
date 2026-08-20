@@ -102,6 +102,9 @@ export const GITHUB_PUBLIC: SourceManifest = defineSource({
   hosts: ['api.github.com'],
   permittedFieldClasses: [
     'company_identity',
+    // An organization's self-declared location and public repo counts are firmographic facts the
+    // API supplies directly, so the post-extract gate must permit that class for this source.
+    'company_firmographic',
     'company_technographic',
     'company_signal',
     'person_identity',

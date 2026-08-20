@@ -134,8 +134,19 @@ export async function runStageHandler(ctx: PipelineContext, stage: RunStage): Pr
 async function planSources(ctx: PipelineContext): Promise<StageResult> {
   const available: string[] = [];
   const unavailable: Array<{ connector: string; reason: string; message: string; envVar?: string }> = [];
+  const selected = selectedConnectors(ctx);
 
-  for (const connector of ctx.discovery) {
+  if (selected.length === 0) {
+    return {
+      status: 'blocked',
+      detail: { requested: ctx.spec.discovery.sources, registered: ctx.discovery.map((c) => c.sourceId) },
+      error:
+        `The search names sources (${ctx.spec.discovery.sources.join(', ')}) that no registered connector provides. ` +
+        `Available: ${[...new Set(ctx.discovery.map((c) => c.sourceId))].join(', ')}.`,
+    };
+  }
+
+  for (const connector of selected) {
     const status = await connector.availability();
     if (status.available) {
       available.push(connector.id);
@@ -174,7 +185,7 @@ async function discoverCompanies(ctx: PipelineContext): Promise<StageResult> {
 
   const limit = Math.min(ctx.spec.discovery.maxCompanies, ctx.spec.budget.maxCompanies);
 
-  for (const connector of ctx.discovery) {
+  for (const connector of selectedConnectors(ctx)) {
     if (inserted >= limit || ctx.budget.isExhausted()) break;
 
     const status = await connector.availability();
@@ -761,6 +772,18 @@ async function assembleDossiers(ctx: PipelineContext): Promise<StageResult> {
     status: 'completed',
     detail: { leads: leads.length, byStatus, evidenceDocuments: evidenceCount, usage: ctx.budget.usage() },
   };
+}
+
+/**
+ * The connectors this run is allowed to use.
+ *
+ * `spec.discovery.sources` is the user's explicit choice, reviewed and approved on the spec screen.
+ * Running every registered connector regardless would spend budget on sources they excluded and
+ * fill the run with failures from sources they never asked for.
+ */
+function selectedConnectors(ctx: PipelineContext): DiscoveryConnector[] {
+  const wanted = new Set(ctx.spec.discovery.sources);
+  return ctx.discovery.filter((c) => wanted.has(c.sourceId));
 }
 
 /* ── shared helpers ───────────────────────────────────────────────────── */

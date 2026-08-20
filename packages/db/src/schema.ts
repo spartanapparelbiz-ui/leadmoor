@@ -52,6 +52,11 @@ export const run = pgTable(
     id: id(),
     specId: text('spec_id').notNull().references(() => leadSpec.id, { onDelete: 'cascade' }),
     status: text('status').notNull().default('queued'),
+    /**
+     * True only for runs created by the demo seeder. Production code never sets this, and the UI
+     * labels every demo run, so demo output can never be mistaken for a real search.
+     */
+    isDemo: boolean('is_demo').notNull().default(false),
     /** Budget counters, checked before every expensive operation. */
     usage: jsonb('usage').notNull().default({}),
     stats: jsonb('stats').notNull().default({}),

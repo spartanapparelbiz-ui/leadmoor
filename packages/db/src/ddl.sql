@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS run (
   id            TEXT PRIMARY KEY,
   spec_id       TEXT NOT NULL REFERENCES lead_spec(id) ON DELETE CASCADE,
   status        TEXT NOT NULL DEFAULT 'queued',
+  is_demo       BOOLEAN NOT NULL DEFAULT false,
   usage         JSONB NOT NULL DEFAULT '{}'::jsonb,
   stats         JSONB NOT NULL DEFAULT '{}'::jsonb,
   error         TEXT,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS run (
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS run_status_idx ON run (status);
+ALTER TABLE run ADD COLUMN IF NOT EXISTS is_demo BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS run_stage (
   id            TEXT PRIMARY KEY,

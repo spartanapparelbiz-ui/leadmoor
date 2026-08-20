@@ -13,14 +13,23 @@ export type PartialClaim = Omit<ClaimInput, 'subjectId' | 'runId'>;
 
 /** "142 employees", "~250 employees", "50-200 employees", "over 1,000 employees". */
 const EMPLOYEE_PATTERNS: RegExp[] = [
+  // The band pattern must come first: "50-200 employees" would otherwise match the single-number
+  // pattern on its upper bound and be recorded as 200 rather than as the band it states.
+  /\b([0-9][0-9,]{0,6})\s*[-–—]\s*([0-9][0-9,]{0,6})\s+(?:full[- ]time\s+)?(?:employees|people|staff)\b/gi,
   /\b(?:approximately\s+|about\s+|around\s+|over\s+|more than\s+|~)?([0-9][0-9,]{0,6})\s*\+?\s*(?:full[- ]time\s+)?(?:employees|people|team members|staff|engineers on staff)\b/gi,
   /\bteam of\s+(?:over\s+|more than\s+|about\s+|~)?([0-9][0-9,]{0,6})\b/gi,
-  /\b([0-9][0-9,]{0,6})\s*[-–]\s*([0-9][0-9,]{0,6})\s+employees\b/gi,
   /\bwe(?:'re| are)\s+(?:a\s+)?(?:team of\s+)?([0-9][0-9,]{0,6})\s+(?:people|employees|strong)\b/gi,
 ];
 
-/** US state names and abbreviations, used to attribute a location claim. */
-const US_LOCATION = /\b(?:San Francisco|New York|Boston|Seattle|Austin|Denver|Chicago|Los Angeles|Atlanta|Portland|Miami|Washington,? D\.?C\.?|United States|USA|U\.S\.A?\.?)\b/g;
+/**
+ * Recognised US locations, country terms first.
+ *
+ * Order matters: JavaScript alternation is leftmost-first, so listing the country before the
+ * cities means "Boston, United States" yields the country-level phrase where one is present,
+ * which is the more useful claim. A city alone is still recorded — it is real evidence of a US
+ * location on its own.
+ */
+const US_LOCATION = /\b(?:United States|USA|U\.S\.A?\.?|San Francisco|New York|Boston|Seattle|Austin|Denver|Chicago|Los Angeles|Atlanta|Portland|Miami|Palo Alto|Mountain View|Brooklyn|San Diego|Dallas|Houston|Washington,? D\.?C\.?)\b/g;
 
 export function extractCompanyClaims(evidence: EvidenceRecord[], sourceId: string): PartialClaim[] {
   const claims: PartialClaim[] = [];
@@ -33,16 +42,18 @@ export function extractCompanyClaims(evidence: EvidenceRecord[], sourceId: strin
 
     // Location, only from pages that plausibly state it.
     if (doc.documentRole === 'company_about' || doc.documentRole === 'company_home') {
-      const match = US_LOCATION.exec(text);
+      // Prefer a country-level phrase when the page contains one anywhere.
+      const all = [...text.matchAll(US_LOCATION)].map((m) => m[0]);
       US_LOCATION.lastIndex = 0;
-      if (match?.[0]) {
-        const span = spanFor(doc.id, text, match[0], 60);
+      const best = all.find((v) => /United States|USA|U\.S/.test(v)) ?? all[0];
+      if (best !== undefined) {
+        const span = spanFor(doc.id, text, best, 60);
         if (span) {
           claims.push({
             subjectType: 'company',
             field: 'company.location',
             fieldClass: 'company_firmographic',
-            value: match[0],
+            value: best,
             spans: [span],
             sourceId,
             extractor: 'pattern_match',

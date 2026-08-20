@@ -34,7 +34,14 @@ const NAME_STOPWORDS = new Set([
   'new', 'york', 'san', 'francisco', 'united', 'states', 'get', 'started', 'sign', 'log',
 ]);
 
-const NAME_RE = /\b([A-Z][a-z'’-]{1,20}(?:\s+[A-Z][a-z'’-]{1,20}){1,2})\b/g;
+/**
+ * A personal name: two or three capitalized words separated by a *space*.
+ *
+ * The separator deliberately excludes newlines. Allowing \s+ let a heading on the previous line
+ * merge into the following name ("Leadership\nPriya Raghunathan" matched as one run), which then
+ * failed the plausibility check and cost us a real person.
+ */
+const NAME_RE = /\b([A-Z][a-z'’-]{1,20}(?:[ \u00a0]+[A-Z][a-z'’-]{1,20}){1,2})\b/g;
 
 export interface ExtractOptions {
   persona: Persona;
@@ -115,11 +122,21 @@ function findNameNear(
     return { name: trimmed, quote: trimmed, distance: before.length - (idx + trimmed.length) };
   }
 
+  /*
+   * Looking *after* the title is only safe for the "CTO: Jane Smith" layout. In a list of people
+   * the next name belongs to the next person, so a name found after the title is accepted only
+   * when it is close and nothing separates it from the title — no sentence end, no line break.
+   */
   for (const match of after.matchAll(NAME_RE)) {
     if (!match[1]) continue;
+    const at = match.index ?? 0;
+    if (at > 24) break;
+    const between = after.slice(0, at);
+    if (/[.!?\n;•|]/.test(between)) break;
+
     const trimmed = trimToName(match[1]);
     if (!trimmed) continue;
-    return { name: trimmed, quote: trimmed, distance: match.index ?? 0 };
+    return { name: trimmed, quote: trimmed, distance: at };
   }
   return null;
 }

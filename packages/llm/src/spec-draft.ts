@@ -172,13 +172,26 @@ export function buildLeadSpec(
   return parseLeadSpec(candidate);
 }
 
+/**
+ * Terms that evidence a location in each country.
+ *
+ * Major cities are included deliberately: a page that says "headquartered in Boston" states a US
+ * location just as surely as one that says "United States", and requiring the country name would
+ * fail companies that simply name their city. Bare state abbreviations are excluded — "CA" and
+ * "MA" appear as substrings far too often to be evidence of anything.
+ */
 function expandCountryTerms(codes: string[]): string[] {
   const map: Record<string, string[]> = {
-    US: ['United States', 'USA', 'U.S.', 'US', 'America', 'CA', 'NY', 'TX', 'WA', 'MA', 'CO', 'IL'],
-    GB: ['United Kingdom', 'UK', 'England', 'London', 'Scotland'],
-    CA: ['Canada', 'Ontario', 'Toronto', 'Vancouver', 'British Columbia'],
-    DE: ['Germany', 'Deutschland', 'Berlin', 'Munich'],
-    NL: ['Netherlands', 'Amsterdam', 'Holland'],
+    US: [
+      'United States', 'USA', 'U.S.', 'America',
+      'San Francisco', 'New York', 'Boston', 'Seattle', 'Austin', 'Denver', 'Chicago',
+      'Los Angeles', 'Atlanta', 'Portland', 'Miami', 'Washington, D.C.', 'Palo Alto',
+      'Mountain View', 'Cambridge, MA', 'Brooklyn', 'San Diego', 'Dallas', 'Houston',
+    ],
+    GB: ['United Kingdom', 'UK', 'England', 'London', 'Scotland', 'Manchester', 'Edinburgh'],
+    CA: ['Canada', 'Ontario', 'Toronto', 'Vancouver', 'British Columbia', 'Montreal'],
+    DE: ['Germany', 'Deutschland', 'Berlin', 'Munich', 'Hamburg'],
+    NL: ['Netherlands', 'Amsterdam', 'Holland', 'Rotterdam', 'Utrecht'],
   };
   const out: string[] = [];
   for (const code of codes) out.push(...(map[code.toUpperCase()] ?? [code]));

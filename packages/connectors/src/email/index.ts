@@ -76,7 +76,7 @@ export class PublishedEmailProvider implements EmailEnrichmentProvider {
         if (ROLE_LOCALPARTS.has(local)) continue;
 
         const localMatchesName = nameTokens.some((t) => local.includes(t));
-        const nearName = isNearName(text, at, nameTokens);
+        const nearName = isAttributableByProximity(text, at, args.fullName);
         if (!localMatchesName && !nearName) continue;
 
         const start = Math.max(0, at - 60);
@@ -142,10 +142,23 @@ function sameOrSubdomain(candidate: string, companyDomain: string): boolean {
   return c === d || c.endsWith(`.${d}`);
 }
 
-function isNearName(text: string, at: number, nameTokens: string[]): boolean {
-  if (nameTokens.length === 0) return false;
-  const window = text.slice(Math.max(0, at - 160), Math.min(text.length, at + 160)).toLowerCase();
-  return nameTokens.every((t) => window.includes(t));
+/**
+ * Attribute an address by proximity only when it is genuinely unambiguous.
+ *
+ * The name must appear *before* the address, close to it, with no other personal name in between.
+ * A symmetric window is not good enough: on a team page every address sits within a few lines of
+ * the next person, and a looser rule silently gives one person another person's address.
+ */
+function isAttributableByProximity(text: string, at: number, fullName: string): boolean {
+  const windowStart = Math.max(0, at - 120);
+  const before = text.slice(windowStart, at);
+  const nameAt = before.toLowerCase().lastIndexOf(fullName.toLowerCase());
+  if (nameAt < 0) return false;
+
+  const between = before.slice(nameAt + fullName.length);
+  // Another capitalized two-word name between them means the address is not clearly this person's.
+  const OTHER_NAME = /\b[A-Z][a-z'’-]{1,20}[ \u00a0]+[A-Z][a-z'’-]{1,20}\b/;
+  return !OTHER_NAME.test(between);
 }
 
 /**

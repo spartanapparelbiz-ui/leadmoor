@@ -1,0 +1,30 @@
+{
+  "name": "@leadmoor/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@leadmoor/claims": "workspace:*",
+    "@leadmoor/connectors": "workspace:*",
+    "@leadmoor/core": "workspace:*",
+    "@leadmoor/db": "workspace:*",
+    "@leadmoor/evidence": "workspace:*",
+    "@leadmoor/export": "workspace:*",
+    "@leadmoor/llm": "workspace:*",
+    "@leadmoor/policy": "workspace:*",
+    "@leadmoor/resolution": "workspace:*",
+    "@leadmoor/runtime": "workspace:*",
+    "@leadmoor/scoring": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "next": "^15.1.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "server-only": "^0.0.1",
+    "zod": "^3.24.1"
+  }
+}

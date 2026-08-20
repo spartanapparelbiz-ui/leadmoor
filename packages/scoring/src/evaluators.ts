@@ -117,7 +117,7 @@ export function evaluateStructuredPredicate(criterion: Criterion, ctx: Evaluatio
     confidence: view.confidence,
     spans: winning?.spans ?? [],
     sourceIds: winning ? [winning.sourceId] : [],
-    reasoning: `${field} ${op} ${JSON.stringify(value ?? null)} — actual ${JSON.stringify(actual)}`,
+    reasoning: `${field} ${op.replace('_', ' ')} ${describeExpected(value)} — actual ${JSON.stringify(actual)}`,
   };
 }
 
@@ -210,6 +210,14 @@ function toNumber(value: unknown): number | null {
     if (Number.isFinite(n)) return n;
   }
   return null;
+}
+
+/** Keeps a reason readable when the expected set is a long list of accepted terms. */
+function describeExpected(value: unknown): string {
+  if (!Array.isArray(value)) return JSON.stringify(value ?? null);
+  if (value.length <= 3) return value.map((v) => `"${String(v)}"`).join(' or ');
+  const head = value.slice(0, 3).map((v) => `"${String(v)}"`).join(', ');
+  return `${head} or ${value.length - 3} other accepted terms`;
 }
 
 function looseEquals(actual: unknown, expected: unknown): boolean {

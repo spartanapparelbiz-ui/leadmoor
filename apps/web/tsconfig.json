@@ -1,0 +1,65 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": [
+      "ES2023",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@leadmoor/core": [
+        "../../packages/core/src/index.ts"
+      ],
+      "@leadmoor/db": [
+        "../../packages/db/src/index.ts"
+      ],
+      "@leadmoor/policy": [
+        "../../packages/policy/src/index.ts"
+      ],
+      "@leadmoor/evidence": [
+        "../../packages/evidence/src/index.ts"
+      ],
+      "@leadmoor/claims": [
+        "../../packages/claims/src/index.ts"
+      ],
+      "@leadmoor/connectors": [
+        "../../packages/connectors/src/index.ts"
+      ],
+      "@leadmoor/resolution": [
+        "../../packages/resolution/src/index.ts"
+      ],
+      "@leadmoor/scoring": [
+        "../../packages/scoring/src/index.ts"
+      ],
+      "@leadmoor/llm": [
+        "../../packages/llm/src/index.ts"
+      ],
+      "@leadmoor/runtime": [
+        "../../packages/runtime/src/index.ts"
+      ],
+      "@leadmoor/export": [
+        "../../packages/export/src/index.ts"
+      ]
+    },
+    "incremental": true
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}

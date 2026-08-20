@@ -57,13 +57,53 @@ export class GitHubDiscovery implements DiscoveryConnector {
     return { available: true };
   }
 
-  private headers(): Record<string, string> {
+  /** Set once a supplied token is rejected, so the rest of the run stops sending it. */
+  private tokenRejected = false;
+
+  private headers(authenticated = true): Record<string, string> {
     const h: Record<string, string> = {
       Accept: 'application/vnd.github+json',
       'X-GitHub-Api-Version': '2022-11-28',
     };
-    if (this.env.GITHUB_TOKEN) h.Authorization = `Bearer ${this.env.GITHUB_TOKEN}`;
+    if (authenticated && !this.tokenRejected && this.env.GITHUB_TOKEN) {
+      h.Authorization = `Bearer ${this.env.GITHUB_TOKEN}`;
+    }
     return h;
+  }
+
+  /**
+   * Fetch a GitHub endpoint, falling back to unauthenticated on a rejected token.
+   *
+   * The public API works logged out at a lower rate limit, so a stale or wrong GITHUB_TOKEN should
+   * degrade to that rather than failing the whole connector. Once a token is rejected we stop
+   * sending it for the remainder of the run instead of re-trying it on every call.
+   */
+  private async get(url: string, runId: string, role: 'search_result' | 'registry_record') {
+    const first = await this.fetcher.fetch({
+      sourceId: this.sourceId,
+      url,
+      documentRole: role,
+      runId,
+      headers: this.headers(),
+    });
+
+    const sentToken = Boolean(this.env.GITHUB_TOKEN) && !this.tokenRejected;
+    if (first.httpStatus === 401 && sentToken) {
+      this.tokenRejected = true;
+      const retry = await this.fetcher.fetch({
+        sourceId: this.sourceId,
+        url,
+        documentRole: role,
+        runId,
+        headers: this.headers(false),
+      });
+      if (retry.status === 'ok') return retry;
+      return {
+        ...retry,
+        reason: `GITHUB_TOKEN was rejected (401) and the unauthenticated request also failed: ${retry.reason ?? retry.status}`,
+      };
+    }
+    return first;
   }
 
   async discover(args: {
@@ -86,13 +126,7 @@ export class GitHubDiscovery implements DiscoveryConnector {
       url.searchParams.set('per_page', '30');
 
       attempted += 1;
-      const outcome = await this.fetcher.fetch({
-        sourceId: this.sourceId,
-        url: url.toString(),
-        documentRole: 'search_result',
-        runId: args.runId,
-        headers: this.headers(),
-      });
+      const outcome = await this.get(url.toString(), args.runId, 'search_result');
 
       if (outcome.status !== 'ok' || !outcome.evidence) {
         failures.push({ url: outcome.url, status: outcome.status, reason: outcome.reason });
@@ -139,13 +173,7 @@ export class GitHubDiscovery implements DiscoveryConnector {
     runId: string,
     failures: DiscoveryReport['failures'],
   ): Promise<CandidateCompany | null> {
-    const outcome = await this.fetcher.fetch({
-      sourceId: this.sourceId,
-      url: `https://api.github.com/orgs/${encodeURIComponent(login)}`,
-      documentRole: 'registry_record',
-      runId,
-      headers: this.headers(),
-    });
+    const outcome = await this.get(`https://api.github.com/orgs/${encodeURIComponent(login)}`, runId, 'registry_record');
 
     if (outcome.status !== 'ok' || !outcome.evidence) {
       failures.push({ url: outcome.url, status: outcome.status, reason: outcome.reason });
