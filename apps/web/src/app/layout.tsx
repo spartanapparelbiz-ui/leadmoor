@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   title: 'LeadMoor',
   description: 'Evidence-first B2B lead research. Every claim traces to a stored document.',
   robots: { index: false, follow: false },
+  icons: { icon: '/icon.svg' },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -61,3 +61,13 @@ given the GDPR surface described in the architecture proposal.
 The name "LeadMoor" implies a MOOR relationship that this ADR explicitly severs at the
 technical level. If independent brand positioning is intended, the name should be revisited
 while a rename is still free — before a domain, a customer, or a contract depends on it.
+
+## Enforcement in practice
+
+`scripts/check-no-moor.mjs` runs as `pnpm check:no-moor` and is part of `pnpm verify`. It fails the
+build on any import specifier or package.json dependency resolving to a MOOR module, while
+explicitly treating `leadmoor` and `@leadmoor/*` as this product's own namespace.
+
+As of the M0 implementation the check passes with zero findings: LeadMoor depends on Next.js,
+React, Drizzle, Zod, the Anthropic SDK, `pg`, and PGlite, and on nothing else outside its own
+workspace.

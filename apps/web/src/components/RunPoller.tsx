@@ -30,7 +30,16 @@ export function RunPoller({ runId, embedded }: { runId: string; embedded: boolea
           summary &&
           ['completed', 'failed', 'cancelled', 'budget_exhausted', 'partial'].includes(summary.status) &&
           summary.pending === 0;
-        if (finished) return;
+
+        if (finished) {
+          // router.refresh() is fire-and-forget, so stopping here would leave the page showing the
+          // last in-flight render. One more refresh after a beat guarantees the terminal state
+          // actually reaches the screen.
+          timer = setTimeout(() => {
+            if (!stopped.current) router.refresh();
+          }, 900);
+          return;
+        }
       } catch {
         // A transient failure must not stop the page updating; the next tick retries.
       }

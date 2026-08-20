@@ -357,6 +357,9 @@ export class DeletionService {
     const person = (await this.db.select().from(personTable).where(eq(personTable.id, personId)).limit(1))[0];
     if (!person) throw new Error(`person ${personId} not found`);
 
+    // A deletion is compliance-significant, so it is recorded against the run it affected as well
+    // as globally — otherwise it would be invisible on the audit page for that run.
+    const affectedRunId = person.runId;
     const requestId = newId();
     await this.db.insert(deletionRequestTable).values({
       id: requestId,
@@ -400,6 +403,7 @@ export class DeletionService {
       .where(eq(deletionRequestTable.id, requestId));
 
     await this.audit.record('record.deleted', {
+      runId: affectedRunId,
       subject: personId,
       detail: { type: 'person', claimsDeleted, identifiersDeleted, leadsUpdated, requestId },
     });
@@ -412,6 +416,7 @@ export class DeletionService {
     const company = (await this.db.select().from(companyTable).where(eq(companyTable.id, companyId)).limit(1))[0];
     if (!company) throw new Error(`company ${companyId} not found`);
 
+    const affectedRunId = company.runId;
     const requestId = newId();
     await this.db.insert(deletionRequestTable).values({
       id: requestId,
@@ -445,6 +450,7 @@ export class DeletionService {
       .where(eq(deletionRequestTable.id, requestId));
 
     await this.audit.record('record.deleted', {
+      runId: affectedRunId,
       subject: companyId,
       detail: { type: 'company', peopleDeleted: people.length, claimsDeleted, requestId },
     });

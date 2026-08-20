@@ -1,11 +1,9 @@
-import 'server-only';
-
 /**
- * In-process rate limiting for expensive endpoints.
+ * Fixed-window rate limiting for expensive operations.
  *
- * A fixed-window counter per action key. This is a single-node guard against runaway cost — a
- * multi-node deployment should move the counter to Postgres or Redis, which is why the check is
- * behind one function rather than inlined at call sites.
+ * Pure logic with no I/O and no credentials, so it lives here rather than behind a server-only
+ * guard. A multi-node deployment should move the counter to Postgres or Redis — the check is
+ * behind one function precisely so that swap does not touch call sites.
  */
 
 interface Window {

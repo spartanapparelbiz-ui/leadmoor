@@ -20,7 +20,8 @@
     "check:no-moor": "node scripts/check-no-moor.mjs",
     "verify": "pnpm check:no-moor && pnpm typecheck && pnpm test && pnpm build",
     "demo:seed": "tsx --tsconfig tsconfig.base.json scripts/demo.ts",
-    "acceptance": "tsx --tsconfig tsconfig.base.json scripts/acceptance.ts"
+    "acceptance": "tsx --tsconfig tsconfig.base.json scripts/acceptance.ts",
+    "e2e": "node scripts/e2e.mjs"
   },
   "devDependencies": {
     "@leadmoor/claims": "workspace:*",
@@ -39,6 +40,7 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "drizzle-orm": "^0.38.3",
+    "playwright": "^1.62.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",

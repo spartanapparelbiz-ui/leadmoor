@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { newId, parseLeadSpec } from '@leadmoor/core';
+import { checkRateLimit, newId, parseLeadSpec } from '@leadmoor/core';
 import { leadRequest, leadSpec as leadSpecTable, run as runTable } from '@leadmoor/db';
 import { compileRequest } from '@leadmoor/llm';
 import {
@@ -16,7 +16,6 @@ import {
   ready,
   suppressionService,
 } from './services';
-import { checkRateLimit } from './rate-limit';
 
 /**
  * Server actions.
