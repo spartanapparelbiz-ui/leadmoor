@@ -27,7 +27,9 @@ const repoSearchSchema = z.object({
         full_name: z.string(),
         html_url: z.string(),
         description: z.string().nullable().default(null),
-        owner: z.object({ login: z.string(), type: z.string() }),
+        /** The project's own site. Often the company domain, and available without an org lookup. */
+        homepage: z.string().nullable().default(null),
+        owner: z.object({ login: z.string(), type: z.string(), html_url: z.string().default('') }),
       }),
     )
     .default([]),
@@ -145,7 +147,13 @@ export class GitHubDiscovery implements DiscoveryConnector {
         if (seenOrgs.has(item.owner.login)) continue;
         seenOrgs.add(item.owner.login);
 
-        const candidate = await this.orgToCandidate(item.owner.login, query, args.runId, failures);
+        const candidate =
+          (await this.orgToCandidate(item.owner.login, query, args.runId, failures)) ??
+          // The organization endpoint can be unavailable while search is not. The search result is
+          // itself stored evidence and carries the owner and the project homepage, which is enough
+          // for a candidate — with weaker identity, recorded as such.
+          this.repoToCandidate(item, outcome.evidence.id, outcome.evidence.normalizedText, query);
+
         if (candidate) {
           found += 1;
           await args.onCandidate(candidate);
@@ -244,6 +252,72 @@ export class GitHubDiscovery implements DiscoveryConnector {
       identifiers: [
         { kind: 'github_org', value: org.login, strength: 'medium' },
         ...(domain ? [{ kind: 'domain', value: domain, strength: 'medium' as const }] : []),
+      ],
+      evidenceIds: [evidenceId],
+      claims,
+      discoveryQuery: query,
+    };
+  }
+
+  /**
+   * Build a candidate from the search result alone, for when the organization endpoint is
+   * unreachable. Identity is weaker — the login is not a legal name — so the claims say so through
+   * lower confidence and `weak`/`medium` identifier strength.
+   */
+  private repoToCandidate(
+    item: { full_name: string; homepage: string | null; owner: { login: string } },
+    evidenceId: string,
+    text: string,
+    query: string,
+  ): CandidateCompany | null {
+    const login = item.owner.login;
+    const domain = item.homepage ? hostOf(item.homepage) : null;
+    // A homepage pointing back at GitHub is not a company domain.
+    const usableDomain = domain && !/(^|\.)github\.(com|io)$/.test(domain) ? domain : null;
+
+    const claims: CandidateCompany['claims'] = [];
+
+    const loginSpan = spanFor(evidenceId, text, `"login":"${login}"`);
+    if (loginSpan) {
+      claims.push({
+        subjectType: 'company',
+        field: 'company.name',
+        fieldClass: 'company_identity',
+        value: login,
+        spans: [loginSpan],
+        sourceId: this.sourceId,
+        extractor: 'structured_api_field',
+        // An organization login is a handle, not a verified legal or trading name.
+        confidence: 0.55,
+      });
+    }
+
+    if (usableDomain && item.homepage) {
+      const span = spanFor(evidenceId, text, item.homepage);
+      if (span) {
+        claims.push({
+          subjectType: 'company',
+          field: 'company.website',
+          fieldClass: 'company_identity',
+          value: item.homepage,
+          spans: [span],
+          sourceId: this.sourceId,
+          extractor: 'structured_api_field',
+          confidence: 0.65,
+        });
+      }
+    }
+
+    if (claims.length === 0) return null;
+
+    return {
+      name: login,
+      domain: usableDomain,
+      country: null,
+      sourceId: this.sourceId,
+      identifiers: [
+        { kind: 'github_org', value: login, strength: 'medium' },
+        ...(usableDomain ? [{ kind: 'domain', value: usableDomain, strength: 'weak' as const }] : []),
       ],
       evidenceIds: [evidenceId],
       claims,
