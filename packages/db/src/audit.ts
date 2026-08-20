@@ -11,6 +11,15 @@ import { auditLog } from './schema.js';
  * credential can never reach the audit table.
  */
 export const AUDIT_ACTIONS = [
+  'auth.signed_in',
+  'auth.signed_out',
+  'auth.registered',
+  'workspace.created',
+  'workspace.switched',
+  'workspace.member_added',
+  'workspace.member_removed',
+  'saved_search.created',
+  'saved_search.deleted',
   'request.created',
   'spec.compiled',
   'spec.edited',

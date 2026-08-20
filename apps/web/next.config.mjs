@@ -1,3 +1,20 @@
+import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
+import nextEnv from '@next/env';
+
+/*
+ * Configuration lives in the repository root .env, but Next only reads the .env beside the app it
+ * is building. Loading the root one here — with Next's own loader, so the precedence rules are
+ * identical — means one file configures the web app, the worker, and the scripts alike.
+ *
+ * Values stay in process.env on the server. Nothing is inlined into the client bundle: there is no
+ * NEXT_PUBLIC_ variable in this product.
+ */
+nextEnv.loadEnvConfig(
+  resolve(dirname(fileURLToPath(import.meta.url)), '..', '..'),
+  process.env.NODE_ENV !== 'production',
+);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,

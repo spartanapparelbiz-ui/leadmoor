@@ -14,6 +14,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { newId } from '@leadmoor/core';
+import { AuthService } from '@leadmoor/auth';
 import { leadRequest, leadSpec as leadSpecTable, run as runTable } from '@leadmoor/db';
 import { MemoryBlobStore } from '@leadmoor/evidence';
 import { HeuristicSpecCompiler } from '@leadmoor/llm';
@@ -150,6 +151,28 @@ async function main(): Promise<void> {
   });
   await services.migrate();
 
+  // A run must belong to a workspace — the engine refuses to execute one that does not. The demo
+  // therefore signs up a real account rather than writing rows with a null tenant.
+  const auth = new AuthService(services.db);
+  const email = process.env.DEMO_EMAIL ?? 'demo@leadmoor.local';
+  const password = process.env.DEMO_PASSWORD ?? 'demo-password-1';
+
+  let workspaceId: string;
+  try {
+    ({ workspaceId } = await auth.register({
+      email,
+      password,
+      name: 'Demo user',
+      workspaceName: 'Demo workspace',
+    }));
+  } catch {
+    // Already registered from a previous seed; reuse that account's first workspace.
+    const session = await auth.login(email, password);
+    const ctx = await auth.resolve(session.token);
+    if (!ctx) throw new Error(`demo account ${email} exists but could not be resolved`);
+    workspaceId = ctx.workspaceId;
+  }
+
   const compiled = new HeuristicSpecCompiler().compile(REQUEST);
   if (!compiled.ok || !compiled.spec) {
     throw new Error(`demo spec failed to build: ${compiled.problems.join('; ')}`);
@@ -164,10 +187,13 @@ async function main(): Promise<void> {
 
   const requestId = newId();
   const specId = newId();
-  await services.db.insert(leadRequest).values({ id: requestId, rawText: REQUEST, createdBy: 'demo' });
+  await services.db
+    .insert(leadRequest)
+    .values({ id: requestId, workspaceId, rawText: REQUEST, createdBy: 'demo' });
   await services.db.insert(leadSpecTable).values({
     id: specId,
     requestId,
+    workspaceId,
     version: 1,
     spec: spec as never,
     origin: 'heuristic',
@@ -185,6 +211,7 @@ async function main(): Promise<void> {
   console.log(`  jobs processed: ${processed}`);
   console.log(`  status: ${run?.status}`);
   console.log(`  open: /runs/${runId}`);
+  console.log(`  sign in as: ${email} / ${password}`);
   console.log('  every record from this run is flagged is_demo and labelled in the interface.');
 
   await services.close();

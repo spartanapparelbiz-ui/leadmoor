@@ -236,8 +236,21 @@ export class ExportService {
 
 /** RFC 4180 CSV. Values are quoted whenever they could otherwise break a row. */
 export function toCsv(rows: ExportRow[]): string {
-  const header = EXPORT_COLUMNS.join(',');
-  const body = rows.map((row) => EXPORT_COLUMNS.map((col) => csvCell(row[col])).join(','));
+  return toCsvColumns(rows, EXPORT_COLUMNS);
+}
+
+/**
+ * Writes the chosen columns only.
+ *
+ * The export modal lets a user narrow the sheet. Column *selection* is cosmetic; what may leave
+ * the system at all was already decided by the export gate. Names that are not real columns are
+ * ignored, so a caller cannot invent a field by asking for it.
+ */
+export function toCsvColumns(rows: ExportRow[], columns: Array<keyof ExportRow>): string {
+  const chosen = EXPORT_COLUMNS.filter((col) => columns.includes(col));
+  const use = chosen.length > 0 ? chosen : EXPORT_COLUMNS;
+  const header = use.join(',');
+  const body = rows.map((row) => use.map((col) => csvCell(row[col])).join(','));
   return [header, ...body].join('\n');
 }
 

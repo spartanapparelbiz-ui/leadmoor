@@ -65,16 +65,27 @@ export function exportPolicy(): PolicyEngine {
   });
 }
 
-export function exportService(): ExportService {
-  return new ExportService(services().db, exportPolicy(), audit());
+/*
+ * The three data-handling services take a workspace id as a required argument rather than reading
+ * one from ambient state. A caller that has not resolved a session cannot construct them at all,
+ * which is why tenant isolation holds even if a route forgets to check something.
+ */
+
+export function exportService(workspaceId: string): ExportService {
+  return new ExportService(services().db, exportPolicy(), audit().forWorkspace(workspaceId), workspaceId);
 }
 
-export function suppressionService(): SuppressionService {
-  return new SuppressionService(services().db, audit());
+export function suppressionService(workspaceId: string): SuppressionService {
+  return new SuppressionService(services().db, audit().forWorkspace(workspaceId), workspaceId);
 }
 
-export function deletionService(): DeletionService {
-  return new DeletionService(services().db, audit(), suppressionService());
+export function deletionService(workspaceId: string): DeletionService {
+  return new DeletionService(
+    services().db,
+    audit().forWorkspace(workspaceId),
+    suppressionService(workspaceId),
+    workspaceId,
+  );
 }
 
 /**

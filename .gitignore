@@ -9,3 +9,8 @@ coverage/
 .pglite/
 var/evidence/
 var/*.log
+
+# Local QA artifacts and server logs.
+.qa/
+.server.log
+.leadmoor/

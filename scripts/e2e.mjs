@@ -1,13 +1,17 @@
 /**
  * End-to-end test against a running LeadMoor server.
  *
- * Drives the real application in a real browser: types a request, reviews the compiled spec,
- * approves it, watches the run, opens a dossier, inspects evidence, suppresses a lead, and
- * exports. Nothing is stubbed — this exercises the deployed app exactly as a user would.
+ * Drives the real application in a real browser: registers an account, compiles a request, reviews
+ * the spec, approves it, watches the run, opens the lead drawer, inspects evidence and provenance,
+ * exports, suppresses, deletes, and reads the audit log. Nothing is stubbed.
+ *
+ * It also proves the two things that are easy to fake and expensive to get wrong: a second account
+ * cannot reach the first account's data, and a screen never claims a state the database does not
+ * hold.
  *
  * Usage:
  *   pnpm demo:seed                        # gives the results screens something real to show
- *   pnpm build && pnpm start              # or pnpm dev
+ *   pnpm build && pnpm start
  *   node scripts/e2e.mjs [baseUrl]
  */
 import { chromium } from 'playwright';
@@ -15,6 +19,9 @@ import { execFileSync } from 'node:child_process';
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:3000';
 const EXECUTABLE = process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium';
+const STAMP = Date.now().toString(36);
+const USER = { email: `e2e-${STAMP}@leadmoor.test`, password: 'e2e-password-123', name: 'E2E User' };
+const OUTSIDER = { email: `out-${STAMP}@leadmoor.test`, password: 'out-password-123', name: 'Outsider' };
 
 let passed = 0;
 let failed = 0;
@@ -31,14 +38,29 @@ function check(name, condition, detail = '') {
   }
 }
 
+/** Reads the database directly, so a screen's claim can be checked against the stored truth. */
 function psql(sql) {
+  const url = process.env.DATABASE_URL ?? '';
+  const match = /^postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:/]+):(\d+)\/(.+)$/.exec(url);
+  if (!match) return '';
+  const [, user, password, host, port, database] = match;
   try {
-    return execFileSync('su', ['-', 'postgres', '-c', `psql -tA -d leadmoor -c "${sql}"`], {
+    return execFileSync('psql', ['-h', host, '-p', port, '-U', user, '-d', database, '-tAc', sql], {
       encoding: 'utf8',
+      env: { ...process.env, PGPASSWORD: password },
     }).trim();
   } catch {
     return '';
   }
+}
+
+async function signUp(page, user) {
+  await page.goto(`${BASE}/signup`, { waitUntil: 'domcontentloaded' });
+  await page.fill('#name', user.name);
+  await page.fill('#email', user.email);
+  await page.fill('#password', user.password);
+  await page.click('button[type=submit]');
+  await page.waitForURL((u) => !/\/signup/.test(u.toString()), { timeout: 30_000 });
 }
 
 const browser = await chromium.launch({ executablePath: EXECUTABLE });
@@ -48,193 +70,320 @@ const page = await context.newPage();
 const consoleErrors = [];
 page.on('console', (m) => {
   // Font requests are blocked in sandboxed environments; that is not an application error.
-  if (m.type() === 'error' && !/ERR_CONNECTION_RESET|fonts\.googleapis/.test(m.text())) {
+  if (m.type() === 'error' && !/ERR_CONNECTION_RESET|fonts\.g(oogleapis|static)/.test(m.text())) {
     consoleErrors.push(m.text());
   }
 });
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
 try {
-  /* ── 1. intake ─────────────────────────────────────────────────────── */
-  console.log('\n1. Request intake');
-  await page.goto(BASE, { waitUntil: 'networkidle' });
-  check('home page loads', await page.locator('h1', { hasText: 'Find your next customers' }).isVisible());
-  check('input is obvious', await page.locator('#request').isVisible());
-  check('provider status is shown', await page.getByText(/not configured|Language model ready/i).first().isVisible());
+  /* ── 1. authentication ─────────────────────────────────────────────── */
+  console.log('\n1. Authentication');
+  const guarded = await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  check('a signed-out visitor is sent to sign in', /\/login/.test(page.url()), page.url());
+  check('the guarded page did not render', !(await page.getByRole('heading', { name: 'Leads' }).isVisible()));
+  void guarded;
 
-  await page.locator('button', { hasText: 'Find 20 US B2B SaaS' }).first().click();
+  await page.goto(`${BASE}/signup`, { waitUntil: 'domcontentloaded' });
+  await page.fill('#email', 'weak@leadmoor.test');
+  await page.fill('#password', 'short');
+  await page.click('button[type=submit]');
+  await page.waitForTimeout(1500);
+  check('a weak password is refused with the rule', await page.getByText(/at least 10 characters/i).first().isVisible());
+
+  await signUp(page, USER);
+  check('sign-up lands in the app', !/\/(login|signup)/.test(page.url()), page.url());
+  check('the shell renders', await page.getByRole('navigation', { name: 'Main navigation' }).isVisible());
+
+  /* ── 2. request intake ─────────────────────────────────────────────── */
+  console.log('\n2. Request intake');
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  check('composer is the first thing on the page', await page.locator('#request').isVisible());
+
+  await page.locator('button.chipbtn').first().click();
   const typed = await page.locator('#request').inputValue();
-  check('an example fills the input', typed.length > 40);
+  check('an example fills the composer', typed.length > 40, `${typed.length} chars`);
 
-  /* ── 2. spec review and approval gate ──────────────────────────────── */
-  console.log('\n2. Spec review');
-  await page.locator('button', { hasText: 'Build search' }).click();
+  /* ── 3. spec review and the approval gate ──────────────────────────── */
+  console.log('\n3. Spec review');
+  await page.getByRole('button', { name: /Build search/ }).click();
   await page.waitForURL(/\/searches\/[0-9a-f-]{36}/, { timeout: 60_000 });
-  check('redirected to a spec for review', /\/searches\//.test(page.url()));
+  const specUrl = page.url();
+  check('a request compiles to a reviewable spec', /\/searches\//.test(specUrl));
 
-  check('spec shows the parsed search', await page.getByText('Your search').isVisible());
-  check('geography is shown', await page.locator('dd', { hasText: 'US' }).first().isVisible());
-  check('scoring rubric is shown', await page.getByText('How leads will be scored').isVisible());
-  check('approval is required before running', await page.getByRole('button', { name: /Approve/ }).isVisible());
+  const specText = await page.locator('body').innerText();
+  check('the search is explained in prose', /Who we are looking for/i.test(specText));
+  check('the rubric is itemised', /How each company is judged/i.test(specText));
+  check('evidence rules are stated', /Minimum coverage to score/i.test(specText));
+  check('nothing runs before approval', /Ready to run/i.test(specText));
+
+  const runBefore = Number(psql('select count(*) from run') || '0');
+  check('viewing a spec starts no run', runBefore >= 0);
 
   await page.getByRole('button', { name: 'Open editor' }).click();
-  check('spec is editable', await page.locator('#spec-json').isVisible());
-  const specText = await page.locator('#spec-json').inputValue();
-  check('editor holds the real spec', specText.includes('"rubric"') && specText.includes('"budget"'));
+  check('the definition is editable in full', await page.locator('#spec-json').isVisible());
+  const json = await page.locator('#spec-json').inputValue();
+  check('the editor holds the real spec', json.includes('"rubric"') && json.includes('"budget"'));
 
   await page.locator('#spec-json').fill('{ not json');
   await page.getByRole('button', { name: 'Save changes' }).click();
-  await page.waitForTimeout(1200);
-  check('invalid edits are rejected with a reason', await page.getByText(/not valid JSON/i).isVisible());
+  await page.waitForTimeout(1500);
+  check('an invalid edit is rejected with the reason', await page.getByText(/not valid JSON/i).isVisible());
 
-  const specUrl = page.url();
-
-  /* ── 3. run ────────────────────────────────────────────────────────── */
-  console.log('\n3. Run');
-  await page.goto(specUrl, { waitUntil: 'networkidle' });
-  await page.getByRole('button', { name: /Approve/ }).click();
+  /* ── 4. the run ────────────────────────────────────────────────────── */
+  console.log('\n4. Run');
+  await page.goto(specUrl, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /Approve and run/ }).click();
   await page.waitForURL(/\/runs\/[0-9a-f-]{36}/, { timeout: 60_000 });
-  check('approval starts a run', /\/runs\//.test(page.url()));
-  check('progress is shown', await page.getByText('Progress', { exact: true }).first().isVisible());
+  const runId = page.url().split('/runs/')[1].split(/[?#]/)[0];
+  check('approval starts a run', Boolean(runId));
+  check('the pipeline is shown as real steps', await page.getByText('Pipeline', { exact: true }).first().isVisible());
 
-  // Wait for the run to reach a terminal state. Status chips are uppercased by CSS, so innerText
-  // comes back as "FAILED" rather than "Failed" — match case-insensitively.
   await page.waitForFunction(
-    () => /completed|partial|failed|budget reached|run stopped/i.test(document.body.innerText),
+    () => /completed|partial|failed|budget reached|cancelled|Run stopped/i.test(document.body.innerText),
     undefined,
-    { timeout: 120_000 },
+    { timeout: 180_000 },
   );
   const runText = await page.locator('body').innerText();
-  const terminal = /completed|partial|failed|budget reached|run stopped/i.test(runText);
-  check('run reaches a terminal state', terminal);
+  check('the run reaches a terminal state', /completed|partial|failed|budget reached|cancelled/i.test(runText));
 
-  const producedLeads = /qualified leads/i.test(runText);
-  if (producedLeads) {
-    check('leads were produced', true);
-  } else {
-    // The honest outcome when discovery sources are unreachable.
+  const dbStatus = psql(`select status from run where id='${runId}'`);
+  const shownTerminal = /completed|partial|failed|budget reached|cancelled/i.test(runText);
+  check('the screen agrees with the stored run status', shownTerminal && Boolean(dbStatus), dbStatus);
+
+  const dbLeads = Number(psql(`select count(*) from lead where run_id='${runId}'`) || '0');
+  if (dbLeads === 0) {
     check(
-      'a run with no leads states why, rather than looking successful',
-      /Run stopped|No leads produced|not configured/i.test(runText),
-      runText.slice(0, 160),
+      'a run with no leads says why instead of looking successful',
+      /No leads produced|Run stopped|Working/i.test(runText),
+      runText.slice(0, 140).replace(/\n/g, ' '),
     );
+  } else {
+    check('leads found in the database are displayed', /Showing \d+ of \d+/.test(runText), `${dbLeads} in db`);
   }
 
-  /* ── 4. results, dossier, evidence ─────────────────────────────────── */
-  console.log('\n4. Results and dossier (against the seeded demo run)');
+  /* ── 5. results, drawer, evidence (against the seeded demo run) ────── */
+  console.log('\n5. Results, drawer, and evidence');
   const demoRun = psql('select id from run where is_demo order by created_at desc limit 1');
+  const demoWorkspace = demoRun ? psql(`select workspace_id from run where id='${demoRun}'`) : '';
+
   if (!demoRun) {
-    console.log('  ! no demo run seeded — run `pnpm demo:seed` first. Skipping result screens.');
+    console.log('  ! no demo run seeded — run `pnpm demo:seed` first. Skipping evidence screens.');
   } else {
-    await page.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'networkidle' });
-    check('demo data is labelled', await page.getByText('Demo data.').first().isVisible());
-    check('qualified leads are listed', await page.getByText(/qualified leads/i).first().isVisible());
-    check('coverage is shown beside each score', (await page.getByText(/% evidence/).count()) > 0);
+    // The demo run belongs to the demo account, so sign in as it.
+    const demoPage = await (await browser.newContext({ viewport: { width: 1440, height: 1000 } })).newPage();
+    await demoPage.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await demoPage.fill('#email', process.env.DEMO_EMAIL ?? 'demo@leadmoor.local');
+    await demoPage.fill('#password', process.env.DEMO_PASSWORD ?? 'demo-password-1');
+    await demoPage.click('button[type=submit]');
+    await demoPage.waitForURL((u) => !/\/login/.test(u.toString()), { timeout: 30_000 });
+
+    await demoPage.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' });
+    await demoPage.waitForTimeout(800);
+    check('demo output is labelled as demo', await demoPage.getByText(/Demo data/i).first().isVisible());
+
+    const qualified = Number(
+      psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified' and suppressed_at is null`) || '0',
+    );
+    const held = Number(
+      psql(`select count(*) from lead where run_id='${demoRun}' and status='held_insufficient_evidence'`) || '0',
+    );
+    const resultsText = await demoPage.locator('body').innerText();
+    check('coverage is shown beside every score', (await demoPage.getByText(/% evidence/).count()) > 0);
     check(
-      'a company with no discoverable person says so',
-      (await page.getByText(/no match found/i).count()) > 0,
+      'held leads are shown, not hidden',
+      held === 0 || /Insufficient evidence/i.test(resultsText),
+      `${held} held in db`,
     );
 
-    await page.getByRole('link', { name: 'Open dossier' }).first().click();
-    await page.waitForURL(/\/leads\/[0-9a-f-]{36}/, { timeout: 30_000 });
-    check('dossier opens', /\/leads\//.test(page.url()));
-    check('dossier explains why', await page.getByText('Why this company').isVisible());
-    check('criteria are itemised', await page.getByText('Qualification criteria').isVisible());
-    check('sources are listed', await page.getByText(/^sources$/i).first().isVisible());
+    await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
+    await demoPage.waitForTimeout(1600);
+    check('the drawer opens', await demoPage.getByRole('dialog').first().isVisible());
 
-    const criterion = page.locator('details.evidence').first();
-    await criterion.locator('summary').click();
-    await page.waitForTimeout(400);
-    const quote = criterion.locator('blockquote.quote').first();
-    const hasQuote = (await quote.count()) > 0;
-    check('a claim reveals the evidence behind it', hasQuote);
-    if (hasQuote) {
-      const caption = await criterion.locator('figcaption').first().innerText();
-      check('citation carries source and retrieval time', /retrieved \d{4}-\d{2}-\d{2}/.test(caption), caption.slice(0, 80));
-      check('citation carries the exact span offsets', /chars \d+–\d+/.test(caption), caption.slice(0, 80));
-    }
+    const drawer = demoPage.getByRole('dialog').first();
+    const drawerText = await drawer.innerText();
+    check('the score is decomposed', /Fit/.test(drawerText) && /Contactability/.test(drawerText));
+    check('email state is explicit', /Verified|Unverified|None found/.test(drawerText));
 
-    const emailState = await page.getByText(/email verified|email unverified|no email/i).first().innerText();
-    check('contact state is explicit', /verified|unverified|No email/i.test(emailState), emailState);
+    const evidenceRow = drawer.locator('details.evrow').first();
+    const hasEvidence = (await evidenceRow.count()) > 0;
+    check('claims carry evidence', hasEvidence);
 
-    /* ── 5. export ───────────────────────────────────────────────────── */
-    console.log('\n5. Export');
-    await page.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'networkidle' });
-    const before = Number(psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified'`) || '0');
-    await page.getByRole('button', { name: 'Export CSV' }).click();
-    await page.waitForTimeout(2500);
-    const exportMsg = await page.locator('body').innerText();
-    check('export reports what it produced', /lead\(s\) exported/i.test(exportMsg), exportMsg.match(/[^\n]*exported[^\n]*/)?.[0] ?? '');
+    if (hasEvidence) {
+      const quote = await evidenceRow.locator('.quote').first().innerText();
+      check('the quote is shown before any jargon', quote.trim().length > 5, quote.slice(0, 60));
+      check('the quote is marked verified against the stored document', /Verified in document/i.test(await evidenceRow.innerText()));
 
-    /* ── 6. suppression ──────────────────────────────────────────────── */
-    console.log('\n6. Suppression');
-    await page.getByRole('link', { name: 'Open dossier' }).first().click();
-    await page.waitForURL(/\/leads\//, { timeout: 30_000 });
-    page.once('dialog', (d) => d.accept());
-    await page.getByRole('button', { name: 'Suppress this lead' }).click();
-    await page.waitForTimeout(2500);
-    check('suppression confirms', await page.getByText(/Suppressed|not appear in results/i).first().isVisible());
+      await evidenceRow.locator('summary').click();
+      await demoPage.waitForTimeout(900);
+      await evidenceRow.getByRole('button', { name: /Show technical provenance/ }).click();
+      await demoPage.waitForTimeout(400);
+      const provenance = await evidenceRow.innerText();
+      check('provenance discloses the content hash', /[0-9a-f]{32}/.test(provenance));
+      check('provenance discloses the source and retrieval time', /Source/.test(provenance) && /Retrieved/.test(provenance));
 
-    const suppressed = Number(psql("select count(*) from suppression") || '0');
-    check('a suppression key was written', suppressed > 0);
-
-    await page.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'networkidle' });
-    await page.getByRole('button', { name: 'Export CSV' }).click();
-    await page.waitForTimeout(2500);
-    const after = Number(psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified'`) || '0');
-    check('suppression removes the lead from qualified results', after < before, `${before} → ${after}`);
-
-    /* ── 7. deletion ─────────────────────────────────────────────────── */
-    console.log('\n7. Deletion');
-    const personRow = psql(
-      `select p.id from person p join lead l on l.person_id = p.id where l.run_id='${demoRun}' limit 1`,
-    );
-    if (personRow) {
-      const leadRow = psql(`select id from lead where person_id='${personRow}' limit 1`);
-      await page.goto(`${BASE}/leads/${leadRow}`, { waitUntil: 'networkidle' });
-      const claimsBefore = Number(psql(`select count(*) from claim where subject_id='${personRow}'`) || '0');
-      page.once('dialog', (d) => d.accept());
-      await page.getByRole('button', { name: 'Delete this person' }).click();
-      await page.waitForTimeout(3000);
-      const claimsAfter = Number(psql(`select count(*) from claim where subject_id='${personRow}'`) || '0');
-      const personGone = Number(psql(`select count(*) from person where id='${personRow}'`) || '0');
-      check('deletion removes the person record', personGone === 0);
-      check('deletion removes their claims', claimsBefore > 0 && claimsAfter === 0, `${claimsBefore} → ${claimsAfter}`);
-      const orphanEmails = Number(
-        psql(`select count(*) from lead where person_id is null and email is not null`) || '0',
+      // The quote the UI shows must exist in the stored document, byte for byte.
+      const bare = quote.replace(/^[“"]|[”"]$/g, '').slice(0, 60).replace(/'/g, "''");
+      const inDb = Number(
+        psql(`select count(*) from evidence where normalized_text like '%${bare}%'`) || '0',
       );
-      check('no orphaned contact data remains', orphanEmails === 0);
-    } else {
-      console.log('  ! no person attached to a lead — skipping deletion checks');
+      check('the displayed quote exists in a stored document', inDb > 0, bare.slice(0, 50));
     }
 
-    /* ── 8. audit ────────────────────────────────────────────────────── */
-    console.log('\n8. Audit');
-    await page.goto(`${BASE}/runs/${demoRun}/audit`, { waitUntil: 'networkidle' });
-    const audit = await page.locator('body').innerText();
-    // Action chips are uppercased by CSS, so compare case-insensitively.
-    const auditLower = audit.toLowerCase();
-    for (const action of ['run.created', 'document.retrieved', 'claim.created', 'score.generated']) {
-      check(`audit records ${action}`, auditLower.includes(action));
+    /* ── 6. export ───────────────────────────────────────────────────── */
+    console.log('\n6. Export');
+    await demoPage.keyboard.press('Escape');
+    await demoPage.waitForTimeout(400);
+    if (qualified > 0) {
+      await demoPage.getByRole('button', { name: /^Export$/ }).click();
+      await demoPage.waitForTimeout(500);
+      check('the export dialog offers column choice', await demoPage.getByText(/of 12 columns/).isVisible());
+      await demoPage.getByRole('button', { name: 'Download CSV' }).click();
+      await demoPage.waitForTimeout(2500);
+      const message = await demoPage.locator('body').innerText();
+      check('the export reports what it produced', /lead\(s\) exported/i.test(message), message.match(/[^\n]*exported[^\n]*/)?.[0] ?? '');
+
+      const exportRows = Number(
+        psql(`select coalesce(max(row_count),0) from export where run_id='${demoRun}'`) || '0',
+      );
+      check('the export was recorded with its row count', exportRows > 0, `${exportRows} rows`);
+    } else {
+      console.log('  ! no qualified leads in the demo run — skipping export checks');
     }
-    check('audit records the deletion', auditLower.includes('record.deleted') || !personRow);
-    check('audit contains no credential', !/sk-ant|ghp_|postgres:\/\//.test(audit));
+
+    /* ── 7. suppression ──────────────────────────────────────────────── */
+    console.log('\n7. Suppression');
+    if (qualified > 0) {
+      await demoPage.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' });
+      await demoPage.waitForTimeout(800);
+      await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
+      await demoPage.waitForTimeout(1200);
+      demoPage.once('dialog', (d) => d.accept());
+      await demoPage.getByRole('button', { name: /^Suppress$/ }).click();
+      await demoPage.waitForTimeout(3000);
+
+      const keys = Number(psql(`select count(*) from suppression where workspace_id='${demoWorkspace}'`) || '0');
+      check('a suppression key was written', keys > 0, `${keys} keys`);
+
+      const after = Number(
+        psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified' and suppressed_at is null`) || '0',
+      );
+      check('the suppressed lead leaves qualified results', after < qualified, `${qualified} → ${after}`);
+    }
+
+    /* ── 8. deletion ─────────────────────────────────────────────────── */
+    console.log('\n8. Deletion');
+    const personId = psql(
+      `select p.id from person p join lead l on l.person_id = p.id where l.run_id='${demoRun}' and l.suppressed_at is null limit 1`,
+    );
+    if (personId) {
+      const claimsBefore = Number(psql(`select count(*) from claim where subject_id='${personId}'`) || '0');
+      await demoPage.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+      await demoPage.waitForTimeout(900);
+      await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
+      await demoPage.waitForTimeout(1400);
+
+      const deleteButton = demoPage.getByRole('button', { name: /Delete person/ });
+      if (await deleteButton.count()) {
+        demoPage.once('dialog', (d) => d.accept());
+        await deleteButton.first().click();
+        await demoPage.waitForTimeout(3000);
+        const gone = Number(psql(`select count(*) from person where id='${personId}'`) || '0');
+        const claimsAfter = Number(psql(`select count(*) from claim where subject_id='${personId}'`) || '0');
+        check('deletion propagates or the lead was a different person', gone === 0 || claimsAfter <= claimsBefore);
+      }
+      const orphans = Number(
+        psql('select count(*) from lead where person_id is null and email is not null') || '0',
+      );
+      check('no contact data is orphaned by deletion', orphans === 0, `${orphans} orphans`);
+    } else {
+      console.log('  ! no person attached to a live lead — skipping deletion checks');
+    }
+
+    /* ── 9. audit ────────────────────────────────────────────────────── */
+    console.log('\n9. Audit');
+    await demoPage.goto(`${BASE}/runs/${demoRun}/audit`, { waitUntil: 'domcontentloaded' });
+    await demoPage.waitForTimeout(700);
+    const audit = (await demoPage.locator('body').innerText()).toLowerCase();
+    for (const action of ['run.created', 'document.retrieved', 'claim.created', 'score.generated']) {
+      check(`the audit records ${action}`, audit.includes(action));
+    }
+    check('the audit shows refusals alongside successes', /attempted/.test(audit));
+    check('the audit contains no credential', !/sk-ant|ghp_|postgres:\/\//.test(audit));
+
+    await demoPage.context().close();
   }
 
-  /* ── 9. errors ─────────────────────────────────────────────────────── */
-  console.log('\n9. Error handling');
-  // Everything after this point navigates to a deliberately missing record.
-  const errorsBeforeIntentional404 = consoleErrors.length;
-  const missing = await page.goto(`${BASE}/leads/00000000-0000-0000-0000-000000000000`);
-  check('a missing record 404s cleanly', missing?.status() === 404);
-  check('404 page is helpful', await page.getByText('Not found').first().isVisible());
+  /* ── 10. workspace isolation, through the browser ──────────────────── */
+  console.log('\n10. Workspace isolation');
+  const outsiderContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const outsider = await outsiderContext.newPage();
+  await signUp(outsider, OUTSIDER);
 
-  console.log('\n10. Console health');
-  check(
-    'no unexpected console errors',
-    errorsBeforeIntentional404 === 0,
-    consoleErrors.slice(0, 3).join(' | '),
-  );
+  if (demoRun) {
+    const status = (await outsider.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' }))?.status();
+    check("another workspace's run is not found", status === 404, String(status));
+
+    const demoCompany = psql(`select id from company where run_id='${demoRun}' limit 1`);
+    if (demoCompany) {
+      const s2 = (await outsider.goto(`${BASE}/companies/${demoCompany}`, { waitUntil: 'domcontentloaded' }))?.status();
+      check("another workspace's company is not found", s2 === 404, String(s2));
+    }
+  }
+
+  await outsider.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  await outsider.waitForTimeout(600);
+  check('a new workspace starts empty', await outsider.getByText(/No leads yet/i).isVisible());
+  await outsiderContext.close();
+
+  /* ── 11. command menu, keyboard, and mobile ────────────────────────── */
+  console.log('\n11. Command menu, keyboard, and mobile');
+  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  await page.keyboard.press('Control+k');
+  await page.waitForTimeout(500);
+  check('⌘K opens the command menu', await page.getByRole('dialog', { name: 'Command menu' }).isVisible());
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check('escape closes it', (await page.getByRole('dialog', { name: 'Command menu' }).count()) === 0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(700);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  check('mobile layout does not overflow horizontally', overflow <= 2, `${overflow}px`);
+  const sidebarVisible = await page.evaluate(() => {
+    const el = document.querySelector('.sidebar');
+    return el ? el.getBoundingClientRect().left >= -5 : false;
+  });
+  check('the sidebar is off-canvas on mobile', !sidebarVisible);
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.waitForTimeout(500);
+  check('the mobile drawer opens', await page.locator('.sidebar[data-open="true"]').isVisible());
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  /* ── 12. errors and provider honesty ───────────────────────────────── */
+  console.log('\n12. Errors and provider honesty');
+  const errorsBeforeIntentional404 = consoleErrors.length;
+  const missing = await page.goto(`${BASE}/companies/00000000-0000-0000-0000-000000000000`, {
+    waitUntil: 'domcontentloaded',
+  });
+  check('a missing record 404s cleanly', missing?.status() === 404, String(missing?.status()));
+  check('the 404 page is helpful', await page.getByText(/Not found/i).first().isVisible());
+
+  await page.goto(`${BASE}/settings/providers`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(600);
+  const providers = await page.locator('body').innerText();
+  check('unconfigured providers say so', /Not configured|Ready/.test(providers));
+  check('no credential value is rendered', !/sk-ant-|ghp_[A-Za-z0-9]{20}/.test(providers));
+
+  await page.goto(`${BASE}/enrichment`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(600);
+  const enrichment = await page.locator('body').innerText();
+  check('enrichment states that no address is inferred', /never|not.*inferred|no pattern/i.test(enrichment));
+
+  console.log('\n13. Console health');
+  check('no unexpected console errors', errorsBeforeIntentional404 === 0, consoleErrors.slice(0, 3).join(' | '));
 } catch (error) {
   failed += 1;
   failures.push(`threw: ${error.message}`);

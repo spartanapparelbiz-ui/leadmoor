@@ -4,6 +4,7 @@ import {
   auditLog,
   claim,
   company,
+  criterionVerdict,
   evidence,
   exportRecord,
   fetchLog,
@@ -12,6 +13,7 @@ import {
   leadSpec,
   person,
   run,
+  runStage,
   savedSearch,
   suppression,
 } from './schema.js';
@@ -90,6 +92,49 @@ export class WorkspaceScope {
       .orderBy(desc(run.createdAt))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /**
+   * Stage rows for a run.
+   *
+   * `run_stage` has no workspace column of its own — it hangs off a run that does. Ownership is
+   * therefore established on the parent first, and an unowned run id yields an empty list rather
+   * than another tenant's pipeline.
+   */
+  async stagesFor(runId: string) {
+    if (!(await this.getRun(runId))) return [];
+    return this.db.select().from(runStage).where(eq(runStage.runId, runId)).orderBy(runStage.ordinal);
+  }
+
+  /** Live counters for the run screen. Every count is scoped, not just the run lookup. */
+  async runCounters(runId: string): Promise<{
+    companies: number;
+    people: number;
+    leads: number;
+    documents: number;
+    modelCalls: number;
+  }> {
+    const runRow = await this.getRun(runId);
+    if (!runRow) return { companies: 0, people: 0, leads: 0, documents: 0, modelCalls: 0 };
+
+    const usage = (runRow.usage ?? {}) as { documents?: number; modelCalls?: number };
+    const [companies, people, leads, docs] = await Promise.all([
+      this.db.select({ id: company.id }).from(company).where(and(eq(company.runId, runId), this.owned(company))),
+      this.db.select({ id: person.id }).from(person).where(and(eq(person.runId, runId), this.owned(person))),
+      this.db
+        .select({ id: lead.id })
+        .from(lead)
+        .where(and(eq(lead.runId, runId), this.owned(lead), isNull(lead.suppressedAt))),
+      this.db.select({ id: evidence.id }).from(evidence).where(and(eq(evidence.runId, runId), this.owned(evidence))),
+    ]);
+
+    return {
+      companies: companies.length,
+      people: people.length,
+      leads: leads.length,
+      documents: docs.length,
+      modelCalls: Number(usage.modelCalls ?? 0),
+    };
   }
 
   /* ── leads, companies, people ───────────────────────────────────────── */
@@ -188,6 +233,22 @@ export class WorkspaceScope {
       .select()
       .from(claim)
       .where(and(eq(claim.subjectType, subjectType), eq(claim.subjectId, subjectId), this.owned(claim)));
+  }
+
+  /**
+   * Criterion verdicts for a run.
+   *
+   * Like `run_stage`, `criterion_verdict` hangs off a run rather than carrying its own workspace
+   * column, so ownership is established on the run first.
+   */
+  async verdictsFor(runId: string, subjectId?: string) {
+    if (!(await this.getRun(runId))) return [];
+    const clauses: SQL[] = [eq(criterionVerdict.runId, runId)];
+    if (subjectId) clauses.push(eq(criterionVerdict.subjectId, subjectId));
+    return this.db
+      .select()
+      .from(criterionVerdict)
+      .where(and(...clauses));
   }
 
   async listFetches(runId: string) {

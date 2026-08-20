@@ -1,16 +1,12 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
+import { DDL } from './ddl.js';
 import { schema } from './schema.js';
 
 export type Db = NodePgDatabase<typeof schema>;
-
-const here = dirname(fileURLToPath(import.meta.url));
 
 export interface DbHandle {
   db: Db;
@@ -20,12 +16,8 @@ export interface DbHandle {
   close(): Promise<void>;
 }
 
-function ddl(): string {
-  return readFileSync(join(here, 'ddl.sql'), 'utf8');
-}
-
 /**
- * Split DDL into statements. The file contains no dollar-quoted bodies or semicolons inside
+ * Split DDL into statements. The text contains no dollar-quoted bodies or semicolons inside
  * literals, so a simple split is correct here and avoids pulling in a SQL parser.
  */
 function statements(source: string): string[] {
@@ -54,7 +46,7 @@ export function openDb(url = process.env.DATABASE_URL): DbHandle {
       db,
       driver: 'postgres',
       async migrate() {
-        for (const stmt of statements(ddl())) await db.execute(sql.raw(stmt));
+        for (const stmt of statements(DDL)) await db.execute(sql.raw(stmt));
       },
       async close() {
         await pool.end();
@@ -69,7 +61,7 @@ export function openDb(url = process.env.DATABASE_URL): DbHandle {
     db,
     driver: 'pglite',
     async migrate() {
-      for (const stmt of statements(ddl())) await db.execute(sql.raw(stmt));
+      for (const stmt of statements(DDL)) await db.execute(sql.raw(stmt));
     },
     async close() {
       await client.close();
@@ -85,4 +77,4 @@ export function declaredTableNames(): string[] {
   });
 }
 
-export { ddl as ddlSource, statements as ddlStatements };
+export { DDL as ddlSource, statements as ddlStatements };
