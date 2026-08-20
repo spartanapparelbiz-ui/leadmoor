@@ -1,41 +1,16 @@
-import { AppShell } from '@/components/shell/AppShell';
-import { authService, requireSession } from '@/lib/session';
-import { isDemoWorkspace } from '@/lib/demo';
+import { Shell } from '@/components/shell/Shell';
+import { requireSession } from '@/lib/session';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * The signed-in shell.
- *
- * `requireSession` runs here, so every page beneath this layout is behind authentication by
- * construction rather than by each page remembering to check. The counts in the sidebar come from
- * the workspace scope, so they are the caller's own numbers.
- */
+/** `requireSession` runs here, so every page beneath it is authenticated by construction. */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const { ctx, scope } = await requireSession();
-  const auth = await authService();
-
-  const [counts, workspaces, demo] = await Promise.all([
-    scope.counts(),
-    auth.workspacesFor(ctx.userId),
-    isDemoWorkspace(scope),
-  ]);
+  const runs = await scope.listRuns(20);
 
   return (
-    <AppShell
-      counts={{
-        leads: counts.leads,
-        companies: counts.companies,
-        people: counts.people,
-        savedSearches: counts.savedSearches,
-        runs: counts.runs,
-      }}
-      user={{ name: ctx.name, email: ctx.email, role: ctx.role }}
-      workspaces={workspaces}
-      activeWorkspaceId={ctx.workspaceId}
-      demo={demo}
-    >
+    <Shell email={ctx.email} demo={runs.some((r) => r.isDemo)}>
       {children}
-    </AppShell>
+    </Shell>
   );
 }

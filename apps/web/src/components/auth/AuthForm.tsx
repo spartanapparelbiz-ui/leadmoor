@@ -16,7 +16,7 @@ export function AuthForm({ mode }: { mode: 'signin' | 'signup' }) {
   const [password, setPassword] = useState('');
 
   return (
-    <form action={formAction} className="col g-14">
+    <form action={formAction} className="col g14">
       {mode === 'signup' ? (
         <div className="field">
           <label htmlFor="name">Your name</label>
@@ -52,12 +52,12 @@ export function AuthForm({ mode }: { mode: 'signin' | 'signup' }) {
           aria-describedby={mode === 'signup' ? 'pw-help' : undefined}
         />
         {mode === 'signup' ? (
-          <p id="pw-help" className="faint t-xs" style={{ margin: 0 }}>
+          <p id="pw-help" className="faint xs" style={{ margin: 0 }}>
             At least 10 characters, with a letter and a number.
           </p>
         ) : null}
         {state?.fieldErrors?.password ? (
-          <p className="t-xs" role="alert" style={{ margin: 0, color: 'var(--crit)' }}>
+          <p className="xs" role="alert" style={{ margin: 0, color: 'var(--crit)' }}>
             {state.fieldErrors.password}
           </p>
         ) : null}
@@ -73,19 +73,19 @@ export function AuthForm({ mode }: { mode: 'signin' | 'signup' }) {
             placeholder="Acme GTM"
             maxLength={120}
           />
-          <p className="faint t-xs" style={{ margin: 0 }}>
+          <p className="faint xs" style={{ margin: 0 }}>
             Optional. You can rename it or create more later.
           </p>
         </div>
       ) : null}
 
       {state?.error ? (
-        <p className="notice notice--crit t-sm" role="alert" style={{ margin: 0 }}>
+        <p className="note note--crit sm" role="alert" style={{ margin: 0 }}>
           {state.error}
         </p>
       ) : null}
 
-      <SubmitButton className="btn btn--primary btn--block" pendingLabel="Please wait…">
+      <SubmitButton className="btn btn--pri btn--block" pendingLabel="Please wait…">
         {mode === 'signup' ? 'Create account' : 'Sign in'}
       </SubmitButton>
     </form>

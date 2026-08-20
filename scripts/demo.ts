@@ -226,7 +226,7 @@ async function main(): Promise<void> {
   console.log(`demo run ${runId}`);
   console.log(`  jobs processed: ${processed}`);
   console.log(`  status: ${run?.status}`);
-  console.log(`  open: /runs/${runId}`);
+  console.log(`  open: /s/${runId}`);
   console.log(`  sign in as: ${email} / ${password}`);
   console.log('  every record from this run is flagged is_demo and labelled in the interface.');
 

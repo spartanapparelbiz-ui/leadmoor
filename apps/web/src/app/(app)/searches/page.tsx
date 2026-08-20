@@ -1,80 +1,103 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import type { LeadSpec } from '@leadmoor/core';
 import { ready } from '@/lib/services';
 import { requireSession } from '@/lib/session';
-import { relativeTime, runStatusPill } from '@/lib/format';
-import { EmptyState } from '@/components/EmptyState';
-import { IconPlus, IconSearch } from '@/components/Icons';
+import { SavedRow } from '@/components/find/SavedRow';
 
 export const metadata: Metadata = { title: 'Searches' };
 export const dynamic = 'force-dynamic';
 
-export default async function SearchesPage() {
+const FINISHED = new Set(['completed', 'partial', 'failed', 'cancelled', 'budget_exhausted']);
+
+export default async function Searches() {
   await ready();
   const { scope } = await requireSession();
 
-  const specs = await scope.listSpecs(100);
-  const runs = await scope.listRuns(200);
-  const runBySpec = new Map<string, (typeof runs)[number]>();
-  for (const run of runs) if (!runBySpec.has(run.specId)) runBySpec.set(run.specId, run);
+  const [saved, runs, specs] = await Promise.all([
+    scope.listSavedSearches(),
+    scope.listRuns(40),
+    scope.listSpecs(80),
+  ]);
+  const specById = new Map(specs.map((s) => [s.id, s]));
+  const requests = new Map<string, string>();
+  for (const spec of specs) {
+    if (!spec.requestId) continue;
+    const req = await scope.getRequest(spec.requestId);
+    if (req) requests.set(spec.id, req.rawText);
+  }
 
   return (
-    <div className="page">
-      <div className="pagehead">
-        <div>
-          <h1 className="t-page">Searches</h1>
-          <p className="muted t-sm" style={{ margin: '2px 0 0' }}>
-            Every request you have compiled, and the run it produced.
-          </p>
-        </div>
-        <div className="grow" />
-        <Link href="/" className="btn btn--primary btn--sm">
-          <IconPlus />
-          New search
-        </Link>
+    <div className="page page--mid">
+      <div className="head">
+        <h1 className="h1">Searches</h1>
       </div>
 
-      {specs.length === 0 ? (
-        <EmptyState
-          icon={<IconSearch />}
-          title="No searches yet"
-          body="A search starts with a sentence describing who you want to reach. LeadMoor turns it into a specification you can read and edit before anything runs."
-          hints={[
-            'Say the country, company size, and the signal that matters — for example “hiring security engineers”.',
-            'Name the role you want to reach, so people discovery knows who to look for.',
-          ]}
-          action={{ href: '/', label: 'Start your first search' }}
-        />
-      ) : (
-        <div className="card">
-          <div className="card__body card__body--flush divide">
-            {specs.map((spec) => {
-              const doc = spec.spec as unknown as LeadSpec;
-              const run = runBySpec.get(spec.id);
-              const pill = run ? runStatusPill(run.status) : null;
+      {saved.length > 0 ? (
+        <section style={{ marginBottom: 34 }}>
+          <span className="label">Saved</span>
+          <div className="col g6" style={{ marginTop: 10 }}>
+            {saved.map((s) => (
+              <SavedRow key={s.id} id={s.id} name={s.name} request={s.sourceRequest} lastRunId={s.lastRunId} />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
+      <section>
+        <span className="label">History</span>
+        {runs.length === 0 ? (
+          <div className="empty" style={{ marginTop: 10 }}>
+            <h3>Nothing yet</h3>
+            <p>Describe who you are looking for and LeadMoor will start searching straight away.</p>
+            <Link href="/" className="btn btn--pri btn--sm">
+              New search
+            </Link>
+          </div>
+        ) : (
+          <div className="col g6" style={{ marginTop: 10 }}>
+            {runs.map((run) => {
+              const stats = (run.stats ?? {}) as Record<string, number>;
+              const ask = requests.get(run.specId) ?? (specById.get(run.specId)?.spec as { name?: string })?.name;
               return (
-                <Link key={spec.id} href={`/searches/${spec.id}`} className="rowbtn">
-                  <span className="col g-2" style={{ minWidth: 0 }}>
-                    <span className="truncate" style={{ fontWeight: 550 }}>
-                      {doc.name ?? 'Untitled search'}
-                    </span>
-                    <span className="faint t-xs truncate">
-                      {doc.geography?.countries?.join(', ')} ·{' '}
-                      {doc.rubric?.criteria?.length ?? 0} criteria · {doc.personas?.titles?.[0] ?? 'no persona'}
-                    </span>
+                <Link key={run.id} href={`/s/${run.id}`} className="card row g10" style={{ padding: '12px 14px' }}>
+                  <span className="col g2" style={{ minWidth: 0 }}>
+                    <span className="sm truncate">{ask ?? 'Search'}</span>
+                    <span className="xs faint">{statusLabel(run.status)}</span>
                   </span>
                   <div className="grow" />
-                  {pill ? <span className={pill.className}>{pill.label}</span> : null}
-                  {!spec.approvedAt ? <span className="pill pill--plain">Draft</span> : null}
-                  <span className="mono t-xs faint nowrap">{relativeTime(spec.createdAt)}</span>
+                  {FINISHED.has(run.status) ? (
+                    <>
+                      <span className="mono sm nowrap" style={{ color: (stats.leads ?? 0) > 0 ? 'var(--accent)' : 'var(--faint)' }}>
+                        {stats.leads ?? 0}
+                      </span>
+                      <span className="xs faint nowrap">leads</span>
+                    </>
+                  ) : null}
                 </Link>
               );
             })}
           </div>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case 'completed':
+      return 'Complete';
+    case 'partial':
+      return 'Complete — some sources were unreachable';
+    case 'failed':
+      return 'Failed';
+    case 'cancelled':
+      return 'Stopped';
+    case 'budget_exhausted':
+      return 'Stopped at its limit';
+    case 'running':
+      return 'Running';
+    default:
+      return 'Queued';
+  }
 }

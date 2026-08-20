@@ -9,9 +9,9 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   return (
     <div className="authwrap">
       <div className="authcard">
-        <div className="authcard__brand">
+        <div className="row g8" style={{ justifyContent: 'center', marginBottom: 18 }}>
           <Brandmark />
-          <span className="brandname" style={{ fontSize: 17 }}>
+          <span style={{ fontSize: 17, fontWeight: 600 }}>
             LeadMoor
           </span>
         </div>

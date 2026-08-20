@@ -1,14 +1,35 @@
 # LeadMoor
 
-Evidence-first B2B lead research. You describe who you want to sell to; LeadMoor finds companies
-from permitted public sources, proves why each one fits, and shows you exactly where every fact
-came from.
+Describe who you want to sell to. LeadMoor finds those companies and the people who decide, tells
+you why each one fits, and shows you the sentence every fact came from.
 
-The product promise is the second half of that sentence. Lead databases are a commodity —
-defensible, auditable reasoning over evidence is not.
+```
+you type          "US SaaS companies with 20–200 employees that are hiring salespeople"
+        ↓
+LeadMoor          reads your request, searches permitted public sources, finds companies,
+                  finds the decision makers, checks what it can, ranks what it found
+        ↓
+you get           a table you can filter, a reason for every lead, and a CSV
+```
+
+One input. One button. No filter panel to configure, no specification to approve.
 
 > **Standalone.** LeadMoor shares no code, database, runtime, or credentials with MOOR.
 > See [ADR-0001](docs/adr/0001-standalone-from-moor.md); `pnpm check:no-moor` enforces it in CI.
+
+---
+
+## The product, in one screen
+
+| | |
+|---|---|
+| **Ask** | A single box. Type a sentence; press Find Leads. The interpretation is shown on the results page, not put in front of you as a form to sign off. |
+| **Watch** | Real pipeline stages with real counters, read back from the database. Nothing counts up on a timer. |
+| **Results** | Score, company, person, role, email, why they fit, source, confidence. Filter by score, confidence, email state, or whether a contact was found. |
+| **Open a lead** | Three to six reasons it was picked, what is known about the company, the contact and their email state, and the quoted evidence behind each claim. |
+| **Refine** | Type "only founders" or "exclude agencies". It is compiled on top of your original request and run fresh; the previous results are kept. |
+| **Find more like this** | One click from any lead builds a new search from what is actually known about it — its industry, size band, location, and the role that was found. |
+| **Export** | One button, one CSV. |
 
 ---
 
@@ -19,7 +40,7 @@ tests that fail if any of them is relaxed.
 
 ### 1. The model never authors a fact
 
-The language model may do exactly three things: compile a request into a typed specification,
+The language model may do exactly three things: read your request into a typed specification,
 propose search queries, and judge supplied evidence while citing the spans it used. It is never
 asked "which companies match this?" and never permitted to emit a company name, a headcount, or an
 email address from its own weights.
@@ -138,7 +159,7 @@ and never as *search complete*.
 
 ```
 apps/
-  web/        Next.js — auth, composer, spec review, live run, results, dossier, audit, settings
+  web/        Next.js — four screens: ask, results, searches, settings
   worker/     durable job worker
 packages/
   auth/       password hashing, sessions, workspaces, membership, roles
@@ -217,24 +238,21 @@ legitimately discovered through a permitted source, never an arbitrary URL.
 
 ---
 
-## Accounts and workspaces
+## Accounts
 
-Everything the product stores belongs to a workspace: runs, specs, leads, companies, people,
-evidence, claims, exports, the do-not-contact list, and the audit trail. A workspace is not a
-filter applied at render time — it is a `workspace_id` predicate applied in SQL by `WorkspaceScope`,
-which is the only read path any route uses. A row with no workspace is visible to nobody rather
-than to everybody.
+Everything LeadMoor stores belongs to an account: searches, leads, companies, people, evidence,
+exports, and the audit trail. That is not a filter applied at render time — it is a `workspace_id`
+predicate applied in SQL by `WorkspaceScope`, which is the only read path any route uses. A row
+with no owner is visible to nobody rather than to everybody.
 
 `requireSession()` runs in the signed-in layout, so every page beneath it is authenticated by
-construction. It re-reads the caller's membership on every request, so removing someone takes
-effect on their next page load without revoking their session. Roles are `owner`, `admin`, and
-`member`; a workspace cannot lose its last owner.
+construction, and it re-reads membership on every request. Two test suites keep this honest:
+`workspace-isolation` is adversarial — it holds a real id from one account and tries to read,
+export, and delete it while scoped to another — and `scope-and-membership` covers the tables that
+carry no owner column of their own and hang off a run instead, which is where a leak would hide.
 
-Two suites keep this honest. `workspace-isolation` is adversarial: it holds a real id from one
-workspace and tries to read, export, suppress, and delete it while scoped to another — every
-attempt must fail in the data layer, not by the interface declining to render a link.
-`scope-and-membership` covers the tables that carry no workspace column of their own and hang off
-a run instead, which is exactly where a leak would hide.
+The data model supports several people per account; the interface does not yet expose inviting
+them, because a lead-finding tool does not need a members screen to be useful.
 
 ## Security
 
@@ -284,25 +302,22 @@ real scorer, real job queue — against a stubbed HTTP transport. Fixtures exist
 the network. The production pipeline never returns fixture data.
 
 Presentation is tested too, because the interface is where an honest pipeline is easiest to
-misrepresent. `presentation.test.ts` locks in that a score dimension the search never asked about
-renders as *not applicable* rather than zero, that an undecided criterion leaves the denominator
-instead of counting as a failure, that a rejected model answer never becomes a pass, that an
-unverified address is never labelled verified, and that a narrowed CSV export keeps the
-formula-injection guard and cannot invent a column by naming one.
+misrepresent. `presentation.test.ts` locks in the two rules a reader relies on fastest: a lead's
+confidence describes the *evidence* rather than the score — full coverage from one source is not
+the same claim as full coverage from three, and a lead that could not be ranked is never shown as
+high confidence — and sources are named rather than shown as internal identifiers.
 
 ### In a browser
 
 ```bash
-pnpm build && pnpm start
-pnpm demo:seed
+pnpm demo:seed && pnpm build && pnpm start
 pnpm e2e
 ```
 
-`pnpm e2e` drives the running application in Chromium the way a person would — registering an
-account, compiling a request, editing the spec, approving it, watching the run, opening the
-evidence drawer, disclosing provenance, exporting, suppressing, deleting, reading the audit log,
-saving and re-running a list, and switching workspaces. It checks what the screen says against
-what the database holds: that the run status shown matches the stored status, that a quote
-displayed in the interface exists byte-for-byte in a stored document, that a suppression actually
-wrote a key, and that a second account cannot reach the first's data. Sixty-nine checks, and it
-exits non-zero if any of them fails.
+`pnpm e2e` runs the brief's own final test in Chromium: open LeadMoor, sign up, type a request,
+click Find Leads, watch the search run, get companies and people, see the email states, open a
+lead and read why it was picked, filter, export, refine in words, save and re-run, and find more
+like a lead. It checks the screen against the database at every step — that the number of rows
+displayed equals the number stored, that a quote shown in the interface exists byte-for-byte in a
+stored document, that an export was recorded with its row count, and that a second account gets a
+404 on the first account's search. Fifty checks; it exits non-zero if any fails.

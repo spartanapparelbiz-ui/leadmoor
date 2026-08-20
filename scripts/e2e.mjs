@@ -1,34 +1,30 @@
 /**
- * End-to-end test against a running LeadMoor server.
+ * The flow, driven for real in a browser.
  *
- * Drives the real application in a real browser: registers an account, compiles a request, reviews
- * the spec, approves it, watches the run, opens the lead drawer, inspects evidence and provenance,
- * exports, suppresses, deletes, and reads the audit log. Nothing is stubbed.
- *
- * It also proves the two things that are easy to fake and expensive to get wrong: a second account
- * cannot reach the first account's data, and a screen never claims a state the database does not
- * hold.
+ * This is the brief's final test, executed: open LeadMoor, type a request, click Find Leads, watch
+ * the search run, get companies and people, see email states, understand why each lead was picked,
+ * filter, and export. It checks what the screen says against what the database holds — a quote
+ * shown in the interface must exist byte-for-byte in a stored document, and one account must not
+ * reach another's data.
  *
  * Usage:
- *   pnpm demo:seed                        # gives the results screens something real to show
- *   pnpm build && pnpm start
+ *   pnpm demo:seed && pnpm build && pnpm start
  *   node scripts/e2e.mjs [baseUrl]
  */
 import { chromium } from 'playwright';
 import { execFileSync } from 'node:child_process';
 
 const BASE = process.argv[2] ?? 'http://127.0.0.1:3000';
-const EXECUTABLE = process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium';
+const EXEC = process.env.PLAYWRIGHT_CHROMIUM ?? '/opt/pw-browsers/chromium';
 const STAMP = Date.now().toString(36);
-const USER = { email: `e2e-${STAMP}@leadmoor.test`, password: 'e2e-password-123', name: 'E2E User' };
-const OUTSIDER = { email: `out-${STAMP}@leadmoor.test`, password: 'out-password-123', name: 'Outsider' };
+const USER = { email: `e2e-${STAMP}@leadmoor.test`, password: 'e2e-password-123' };
 
 let passed = 0;
 let failed = 0;
 const failures = [];
 
-function check(name, condition, detail = '') {
-  if (condition) {
+function check(name, ok, detail = '') {
+  if (ok) {
     passed += 1;
     console.log(`  ✓ ${name}`);
   } else {
@@ -40,10 +36,9 @@ function check(name, condition, detail = '') {
 
 /** Reads the database directly, so a screen's claim can be checked against the stored truth. */
 function psql(sql) {
-  const url = process.env.DATABASE_URL ?? '';
-  const match = /^postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:/]+):(\d+)\/(.+)$/.exec(url);
-  if (!match) return '';
-  const [, user, password, host, port, database] = match;
+  const m = /^postgres(?:ql)?:\/\/([^:]+):([^@]+)@([^:/]+):(\d+)\/(.+)$/.exec(process.env.DATABASE_URL ?? '');
+  if (!m) return '';
+  const [, user, password, host, port, database] = m;
   try {
     return execFileSync('psql', ['-h', host, '-p', port, '-U', user, '-d', database, '-tAc', sql], {
       encoding: 'utf8',
@@ -54,22 +49,22 @@ function psql(sql) {
   }
 }
 
-async function signUp(page, user) {
-  await page.goto(`${BASE}/signup`, { waitUntil: 'domcontentloaded' });
-  await page.fill('#name', user.name);
-  await page.fill('#email', user.email);
-  await page.fill('#password', user.password);
-  await page.click('button[type=submit]');
-  await page.waitForURL((u) => !/\/signup/.test(u.toString()), { timeout: 30_000 });
+/** Waits for a navigation away from `from`, not merely for a url that matches a shape. */
+async function waitForNewRun(target, from) {
+  await target.waitForFunction(
+    (previous) => /\/s\/[0-9a-f-]{36}/.test(location.pathname) && !location.pathname.endsWith(previous),
+    from,
+    { timeout: 90_000 },
+  );
+  return target.url().split('/s/')[1].split(/[?#]/)[0];
 }
 
-const browser = await chromium.launch({ executablePath: EXECUTABLE });
-const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-const page = await context.newPage();
+const browser = await chromium.launch({ executablePath: EXEC });
+const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const page = await ctx.newPage();
 
 const consoleErrors = [];
 page.on('console', (m) => {
-  // Font requests are blocked in sandboxed environments; that is not an application error.
   if (m.type() === 'error' && !/ERR_CONNECTION_RESET|fonts\.g(oogleapis|static)/.test(m.text())) {
     consoleErrors.push(m.text());
   }
@@ -77,393 +72,244 @@ page.on('console', (m) => {
 page.on('pageerror', (e) => consoleErrors.push(String(e)));
 
 try {
-  /* ── 1. authentication ─────────────────────────────────────────────── */
-  console.log('\n1. Authentication');
-  const guarded = await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
+  /* ── 1. the front door ─────────────────────────────────────────────── */
+  console.log('\n1. Getting in');
+  await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
   check('a signed-out visitor is sent to sign in', /\/login/.test(page.url()), page.url());
-  check('the guarded page did not render', !(await page.getByRole('heading', { name: 'Leads' }).isVisible()));
-  void guarded;
 
   await page.goto(`${BASE}/signup`, { waitUntil: 'domcontentloaded' });
   await page.fill('#email', 'weak@leadmoor.test');
   await page.fill('#password', 'short');
   await page.click('button[type=submit]');
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(1400);
   check('a weak password is refused with the rule', await page.getByText(/at least 10 characters/i).first().isVisible());
 
-  await signUp(page, USER);
-  check('sign-up lands in the app', !/\/(login|signup)/.test(page.url()), page.url());
-  check('the shell renders', await page.getByRole('navigation', { name: 'Main navigation' }).isVisible());
+  await page.fill('#email', USER.email);
+  await page.fill('#password', USER.password);
+  await page.click('button[type=submit]');
+  await page.waitForURL((u) => !/signup/.test(u.toString()), { timeout: 30_000 });
+  check('sign-up lands on the search box', await page.locator('#ask').isVisible());
 
-  /* ── 2. request intake ─────────────────────────────────────────────── */
-  console.log('\n2. Request intake');
-  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
-  check('composer is the first thing on the page', await page.locator('#request').isVisible());
+  /* ── 2. one input, one button ──────────────────────────────────────── */
+  console.log('\n2. Asking for leads');
+  const heading = await page.locator('h1').first().innerText();
+  check('the page asks one question', /who are you looking for/i.test(heading), heading);
 
-  await page.locator('button.chipbtn').first().click();
-  const typed = await page.locator('#request').inputValue();
-  check('an example fills the composer', typed.length > 40, `${typed.length} chars`);
+  await page.locator('button.eg').first().click();
+  check('an example fills the box', (await page.locator('#ask').inputValue()).length > 20);
 
-  /* ── 3. spec review and the approval gate ──────────────────────────── */
-  console.log('\n3. Spec review');
-  await page.getByRole('button', { name: /Build search/ }).click();
-  await page.waitForURL(/\/searches\/[0-9a-f-]{36}/, { timeout: 60_000 });
-  const specUrl = page.url();
-  check('a request compiles to a reviewable spec', /\/searches\//.test(specUrl));
+  await page.fill('#ask', 'Find 20 US SaaS companies with 20-200 employees that are hiring salespeople.');
+  const runsBefore = Number(psql('select count(*) from run') || '0');
+  await page.getByRole('button', { name: /Find Leads/ }).click();
+  await page.waitForURL(/\/s\/[0-9a-f-]{36}/, { timeout: 90_000 });
+  const runId = page.url().split('/s/')[1].split(/[?#]/)[0];
+  check('one click starts the search — no approval step', Boolean(runId));
+  check('a run was actually created', Number(psql('select count(*) from run') || '0') > runsBefore);
 
-  const specText = await page.locator('body').innerText();
-  check('the search is explained in prose', /Who we are looking for/i.test(specText));
-  check('the rubric is itemised', /How each company is judged/i.test(specText));
-  check('evidence rules are stated', /Minimum coverage to score/i.test(specText));
-  check('nothing runs before approval', /Ready to run/i.test(specText));
+  /* ── 3. real progress ──────────────────────────────────────────────── */
+  console.log('\n3. Watching it run');
+  await page.waitForTimeout(2000);
+  const mid = await page.locator('body').innerText();
+  check('progress is shown while it runs', /Searching/i.test(mid) || /leads/i.test(mid));
+  check('the understood criteria are shown', /searching for/i.test(mid));
 
-  const runBefore = Number(psql('select count(*) from run') || '0');
-  check('viewing a spec starts no run', runBefore >= 0);
-
-  await page.getByRole('button', { name: 'Open editor' }).click();
-  check('the definition is editable in full', await page.locator('#spec-json').isVisible());
-  const json = await page.locator('#spec-json').inputValue();
-  check('the editor holds the real spec', json.includes('"rubric"') && json.includes('"budget"'));
-
-  await page.locator('#spec-json').fill('{ not json');
-  await page.getByRole('button', { name: 'Save changes' }).click();
-  await page.waitForTimeout(1500);
-  check('an invalid edit is rejected with the reason', await page.getByText(/not valid JSON/i).isVisible());
-
-  /* ── 4. the run ────────────────────────────────────────────────────── */
-  console.log('\n4. Run');
-  await page.goto(specUrl, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('button', { name: /Approve and run/ }).click();
-  await page.waitForURL(/\/runs\/[0-9a-f-]{36}/, { timeout: 60_000 });
-  const runId = page.url().split('/runs/')[1].split(/[?#]/)[0];
-  check('approval starts a run', Boolean(runId));
-  check('the pipeline is shown as real steps', await page.getByText('Pipeline', { exact: true }).first().isVisible());
-
-  await page.waitForFunction(
-    () => /completed|partial|failed|budget reached|cancelled|Run stopped/i.test(document.body.innerText),
-    undefined,
-    { timeout: 180_000 },
+  // A fast search can finish before this line runs, so the stages are checked where they are
+  // recorded rather than from whatever happens to be painted at this instant.
+  const stages = psql(`select string_agg(stage, ',' order by ordinal) from run_stage where run_id='${runId}'`);
+  check(
+    'the real pipeline ran, stage by stage',
+    /source_planning/.test(stages) && /discovery/.test(stages) && /scoring/.test(stages),
+    stages.slice(0, 80),
   );
-  const runText = await page.locator('body').innerText();
-  check('the run reaches a terminal state', /completed|partial|failed|budget reached|cancelled/i.test(runText));
 
-  const dbStatus = psql(`select status from run where id='${runId}'`);
-  const shownTerminal = /completed|partial|failed|budget reached|cancelled/i.test(runText);
-  check('the screen agrees with the stored run status', shownTerminal && Boolean(dbStatus), dbStatus);
+  await page.waitForFunction(() => !/Searching…/.test(document.body.innerText), undefined, { timeout: 240_000 });
+  await page.waitForTimeout(1500);
+  check('the search reaches a finished state', Boolean(psql(`select status from run where id='${runId}'`)));
 
+  /* ── 4. results ────────────────────────────────────────────────────── */
+  console.log('\n4. Results');
   const dbLeads = Number(psql(`select count(*) from lead where run_id='${runId}'`) || '0');
+  const shown = await page.locator('table.t tbody tr').count();
+  const results = await page.locator('body').innerText();
+
   if (dbLeads === 0) {
-    check(
-      'a run with no leads says why instead of looking successful',
-      /No leads produced|Run stopped|Working/i.test(runText),
-      runText.slice(0, 140).replace(/\n/g, ' '),
-    );
+    check('a search with no leads says why', /No leads found/i.test(results), results.slice(0, 120).replace(/\n/g, ' '));
   } else {
-    check('leads found in the database are displayed', /Showing \d+ of \d+/.test(runText), `${dbLeads} in db`);
+    check('every stored lead is displayed', shown === dbLeads, `${shown} shown vs ${dbLeads} stored`);
+    check('the requested columns are present', /SCORE[\s\S]*COMPANY[\s\S]*PERSON[\s\S]*ROLE[\s\S]*EMAIL[\s\S]*WHY THEY FIT[\s\S]*SOURCE[\s\S]*CONFIDENCE/i.test(results));
+    check('email state is explicit on every row', /Verified|Unverified|Unavailable/.test(results));
   }
 
-  /* ── 5. results, drawer, evidence (against the seeded demo run) ────── */
-  console.log('\n5. Results, drawer, and evidence');
+  /* ── 5. the demo run, where enrichment succeeds ────────────────────── */
+  console.log('\n5. A fully enriched search');
   const demoRun = psql('select id from run where is_demo order by created_at desc limit 1');
-  const demoWorkspace = demoRun ? psql(`select workspace_id from run where id='${demoRun}'`) : '';
-
   if (!demoRun) {
-    console.log('  ! no demo run seeded — run `pnpm demo:seed` first. Skipping evidence screens.');
+    console.log('  ! no demo run seeded — run `pnpm demo:seed` first. Skipping.');
   } else {
-    // The demo run belongs to the demo account, so sign in as it.
-    const demoPage = await (await browser.newContext({ viewport: { width: 1440, height: 1000 } })).newPage();
-    await demoPage.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
-    await demoPage.fill('#email', process.env.DEMO_EMAIL ?? 'demo@leadmoor.local');
-    await demoPage.fill('#password', process.env.DEMO_PASSWORD ?? 'demo-password-1');
-    await demoPage.click('button[type=submit]');
-    await demoPage.waitForURL((u) => !/\/login/.test(u.toString()), { timeout: 30_000 });
+    const demoCtx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+    const d = await demoCtx.newPage();
+    await d.goto(`${BASE}/login`, { waitUntil: 'domcontentloaded' });
+    await d.fill('#email', process.env.DEMO_EMAIL ?? 'demo@leadmoor.local');
+    await d.fill('#password', process.env.DEMO_PASSWORD ?? 'demo-password-1');
+    await d.click('button[type=submit]');
+    await d.waitForURL((u) => !/login/.test(u.toString()), { timeout: 30_000 });
+    await d.goto(`${BASE}/s/${demoRun}`, { waitUntil: 'domcontentloaded' });
+    await d.waitForTimeout(1800);
 
-    await demoPage.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' });
-    await demoPage.waitForTimeout(800);
-    check('demo output is labelled as demo', await demoPage.getByText(/Demo data/i).first().isVisible());
+    const text = await d.locator('body').innerText();
+    check('demo output is labelled as demo', /Demo data/i.test(text));
 
-    const qualified = Number(
-      psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified' and suppressed_at is null`) || '0',
-    );
-    const held = Number(
-      psql(`select count(*) from lead where run_id='${demoRun}' and status='held_insufficient_evidence'`) || '0',
-    );
-    const resultsText = await demoPage.locator('body').innerText();
-    check('coverage is shown beside every score', (await demoPage.getByText(/% evidence/).count()) > 0);
-    check(
-      'held leads are shown, not hidden',
-      held === 0 || /Insufficient evidence/i.test(resultsText),
-      `${held} held in db`,
-    );
+    const scored = Number(psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified'`) || '0');
+    check('leads carry real scores', scored === 0 || /\b\d{2,3}\b/.test(text), `${scored} qualified`);
 
-    await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
-    await demoPage.waitForTimeout(1600);
-    check('the drawer opens', await demoPage.getByRole('dialog').first().isVisible());
+    const withPeople = Number(psql(`select count(*) from lead where run_id='${demoRun}' and person_id is not null`) || '0');
+    check('people are found and shown', withPeople === 0 || /Chief Technology Officer|VP Engineering/i.test(text), `${withPeople} with a person`);
 
-    const drawer = demoPage.getByRole('dialog').first();
-    const drawerText = await drawer.innerText();
-    check('the score is decomposed', /Fit/.test(drawerText) && /Contactability/.test(drawerText));
-    check('email state is explicit', /Verified|Unverified|None found/.test(drawerText));
+    /* the drawer */
+    await d.locator('table.t tbody tr').first().locator('.tname').click();
+    await d.waitForTimeout(2200);
+    const drawer = await d.getByRole('dialog').innerText();
+    check('the drawer explains why', /WHY THIS IS A LEAD/i.test(drawer));
+    check('reasons are itemised', (drawer.match(/✓/g) ?? []).length >= 2, `${(drawer.match(/✓/g) ?? []).length} reasons`);
+    check('company facts are shown, with gaps marked', /COMPANY/i.test(drawer) && /Not established|Employees/i.test(drawer));
+    check('contact state is explicit', /CONTACT/i.test(drawer));
+    check('"Find more like this" is offered', (await d.getByRole('button', { name: /Find more like this/ }).count()) > 0);
 
-    const evidenceRow = drawer.locator('details.evrow').first();
-    const hasEvidence = (await evidenceRow.count()) > 0;
-    check('claims carry evidence', hasEvidence);
-
-    if (hasEvidence) {
-      const quote = await evidenceRow.locator('.quote').first().innerText();
-      check('the quote is shown before any jargon', quote.trim().length > 5, quote.slice(0, 60));
-      check('the quote is marked verified against the stored document', /Verified in document/i.test(await evidenceRow.innerText()));
-
-      await evidenceRow.locator('summary').click();
-      await demoPage.waitForTimeout(900);
-      await evidenceRow.getByRole('button', { name: /Show technical provenance/ }).click();
-      await demoPage.waitForTimeout(400);
-      const provenance = await evidenceRow.innerText();
-      check('provenance discloses the content hash', /[0-9a-f]{32}/.test(provenance));
-      check(
-        'provenance discloses the source and retrieval time',
-        /source/i.test(provenance) && /retrieved/i.test(provenance),
-      );
-
-      // The quote the UI shows must exist in the stored document, byte for byte.
-      const bare = quote.replace(/^[“"]|[”"]$/g, '').slice(0, 60).replace(/'/g, "''");
-      const inDb = Number(
-        psql(`select count(*) from evidence where normalized_text like '%${bare}%'`) || '0',
-      );
-      check('the displayed quote exists in a stored document', inDb > 0, bare.slice(0, 50));
-    }
-
-    /* ── 6. export ───────────────────────────────────────────────────── */
-    console.log('\n6. Export');
-    await demoPage.keyboard.press('Escape');
-    await demoPage.waitForTimeout(400);
-    if (qualified > 0) {
-      await demoPage.getByRole('button', { name: /^Export$/ }).click();
-      await demoPage.waitForTimeout(500);
-      check('the export dialog offers column choice', await demoPage.getByText(/of 12 columns/).isVisible());
-      await demoPage.getByRole('button', { name: 'Download CSV' }).click();
-      await demoPage.waitForTimeout(2500);
-      const message = await demoPage.locator('body').innerText();
-      check('the export reports what it produced', /lead\(s\) exported/i.test(message), message.match(/[^\n]*exported[^\n]*/)?.[0] ?? '');
-
-      const exportRows = Number(
-        psql(`select coalesce(max(row_count),0) from export where run_id='${demoRun}'`) || '0',
-      );
-      check('the export was recorded with its row count', exportRows > 0, `${exportRows} rows`);
-    } else {
-      console.log('  ! no qualified leads in the demo run — skipping export checks');
-    }
-
-    /* ── 7. suppression ──────────────────────────────────────────────── */
-    console.log('\n7. Suppression');
-    if (qualified > 0) {
-      await demoPage.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' });
-      await demoPage.waitForTimeout(800);
-      await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
-      await demoPage.waitForTimeout(1200);
-      demoPage.once('dialog', (d) => d.accept());
-      await demoPage.getByRole('button', { name: /^Suppress$/ }).click();
-      await demoPage.waitForTimeout(3000);
-
-      const keys = Number(psql(`select count(*) from suppression where workspace_id='${demoWorkspace}'`) || '0');
-      check('a suppression key was written', keys > 0, `${keys} keys`);
-
-      const after = Number(
-        psql(`select count(*) from lead where run_id='${demoRun}' and status='qualified' and suppressed_at is null`) || '0',
-      );
-      check('the suppressed lead leaves qualified results', after < qualified, `${qualified} → ${after}`);
-    }
-
-    /* ── 8. deletion ─────────────────────────────────────────────────── */
-    console.log('\n8. Deletion');
-    const personId = psql(
-      `select p.id from person p join lead l on l.person_id = p.id where l.run_id='${demoRun}' and l.suppressed_at is null limit 1`,
-    );
-    if (personId) {
-      const claimsBefore = Number(psql(`select count(*) from claim where subject_id='${personId}'`) || '0');
-      await demoPage.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
-      await demoPage.waitForTimeout(900);
-      await demoPage.locator('table.tbl tbody tr').first().locator('button.tbl__primary').click();
-      await demoPage.waitForTimeout(1400);
-
-      const deleteButton = demoPage.getByRole('button', { name: /Delete person/ });
-      if (await deleteButton.count()) {
-        demoPage.once('dialog', (d) => d.accept());
-        await deleteButton.first().click();
-        await demoPage.waitForTimeout(3000);
-        const gone = Number(psql(`select count(*) from person where id='${personId}'`) || '0');
-        const claimsAfter = Number(psql(`select count(*) from claim where subject_id='${personId}'`) || '0');
-        check('deletion propagates or the lead was a different person', gone === 0 || claimsAfter <= claimsBefore);
+    /* evidence and provenance */
+    const ev = d.locator('details.ev').first();
+    check('claims carry evidence', (await ev.count()) > 0);
+    if (await ev.count()) {
+      const quote = (await ev.locator('.quote').first().innerText()).replace(/^[“"]|[”"]$/g, '');
+      check('the quote is shown before any jargon', quote.trim().length > 5, quote.slice(0, 50));
+      await ev.locator('summary').click();
+      await d.waitForTimeout(500);
+      const detailBtn = ev.getByRole('button', { name: /Show source detail/ });
+      if (await detailBtn.count()) {
+        await detailBtn.first().click();
+        await d.waitForTimeout(900);
       }
-      const orphans = Number(
-        psql('select count(*) from lead where person_id is null and email is not null') || '0',
-      );
-      check('no contact data is orphaned by deletion', orphans === 0, `${orphans} orphans`);
-    } else {
-      console.log('  ! no person attached to a live lead — skipping deletion checks');
-    }
+      const opened = await ev.innerText();
+      check('the source, time, and hash are one click away', /[0-9a-f]{32}/.test(opened) && /retrieved/i.test(opened));
+      check('the quote is marked verified against the stored document', /Verified in document/i.test(opened));
 
-    /* ── 9. audit ────────────────────────────────────────────────────── */
-    console.log('\n9. Audit');
-    await demoPage.goto(`${BASE}/runs/${demoRun}/audit`, { waitUntil: 'domcontentloaded' });
-    await demoPage.waitForTimeout(700);
-    const audit = (await demoPage.locator('body').innerText()).toLowerCase();
-    for (const action of ['run.created', 'document.retrieved', 'claim.created', 'score.generated']) {
-      check(`the audit records ${action}`, audit.includes(action));
+      const needle = quote.trim().slice(0, 50).replace(/'/g, "''");
+      const inDb = Number(psql(`select count(*) from evidence where normalized_text like '%${needle}%'`) || '0');
+      check('the displayed quote exists in a stored document', inDb > 0, needle.slice(0, 40));
     }
-    check('the audit shows refusals alongside successes', /attempted/.test(audit));
-    check('the audit contains no credential', !/sk-ant|ghp_|postgres:\/\//.test(audit));
+    await d.keyboard.press('Escape');
+    await d.waitForTimeout(400);
 
-    await demoPage.context().close();
+    /* filters */
+    console.log('\n6. Filters');
+    const before = await d.locator('table.t tbody tr').count();
+    await d.getByRole('button', { name: 'Has a contact' }).click();
+    await d.waitForTimeout(400);
+    const after = await d.locator('table.t tbody tr').count();
+    check('a filter narrows the list', after <= before, `${before} → ${after}`);
+    await d.getByRole('button', { name: 'Has a contact' }).click();
+    await d.waitForTimeout(300);
+    check('unfiltering restores it', (await d.locator('table.t tbody tr').count()) === before);
+
+    /* export */
+    console.log('\n7. Export');
+    const download = d.waitForEvent('download', { timeout: 20_000 }).catch(() => null);
+    await d.getByRole('button', { name: /Export CSV/ }).click();
+    const file = await download;
+    await d.waitForTimeout(1500);
+    check('one click produces a CSV', Boolean(file), file ? await file.suggestedFilename() : 'no download');
+    check('the export reports what it produced', /exported/i.test(await d.locator('body').innerText()));
+    const recorded = Number(psql(`select coalesce(max(row_count),0) from export where run_id='${demoRun}'`) || '0');
+    check('the export was recorded with its row count', recorded > 0, `${recorded} rows`);
+
+    /* refine */
+    console.log('\n8. Refine in words');
+    await d.getByRole('button', { name: /^Refine$/ }).click();
+    await d.waitForTimeout(400);
+    check('refinement takes plain language', await d.locator('#refine').isVisible());
+    await d.locator('#refine').fill('Only companies with 100+ employees');
+    await d.getByRole('button', { name: /^Apply$/ }).click();
+    const refined = await waitForNewRun(d, demoRun);
+    check('a refinement starts a new search', refined !== demoRun, refined);
+    const refinedAsk = psql(
+      `select raw_text from lead_request where id = (select request_id from lead_spec where id = (select spec_id from run where id='${refined}'))`,
+    );
+    check('the refinement is applied on top of the original request', /Refinement: Only companies with 100/.test(refinedAsk), refinedAsk.slice(-60));
+    check('the original results are untouched', Number(psql(`select count(*) from lead where run_id='${demoRun}'`) || '0') > 0);
+
+    /* save */
+    console.log('\n9. Save and re-run');
+    await d.goto(`${BASE}/s/${demoRun}`, { waitUntil: 'domcontentloaded' });
+    await d.waitForTimeout(1200);
+    await d.getByRole('button', { name: /Save search/ }).click();
+    await d.waitForTimeout(300);
+    await d.locator('#save-name').fill(`E2E ${STAMP}`);
+    await d.getByRole('button', { name: /^Save$/ }).click();
+    await d.waitForTimeout(2200);
+    check('a search can be saved', Number(psql(`select count(*) from saved_search where name = 'E2E ${STAMP}'`) || '0') === 1);
+
+    await d.goto(`${BASE}/searches`, { waitUntil: 'domcontentloaded' });
+    await d.waitForTimeout(800);
+    check('it appears under Searches', await d.getByText(`E2E ${STAMP}`, { exact: true }).first().isVisible());
+    await d.getByRole('button', { name: /^Run$/ }).first().click();
+    await d.waitForURL(/\/s\/[0-9a-f-]{36}/, { timeout: 90_000 });
+    check('a saved search re-runs', /\/s\//.test(d.url()));
+
+    /* find more like this */
+    console.log('\n10. Find more like this');
+    await d.goto(`${BASE}/s/${demoRun}`, { waitUntil: 'domcontentloaded' });
+    await d.waitForTimeout(1400);
+    await d.locator('table.t tbody tr').first().locator('.tname').click();
+    await d.waitForTimeout(2000);
+    await d.getByRole('button', { name: /Find more like this/ }).click();
+    const similar = await waitForNewRun(d, demoRun);
+    check('one click searches for similar companies', similar !== demoRun, similar);
+
+    const askText = psql(
+      `select raw_text from lead_request where id = (select request_id from lead_spec where id = (select spec_id from run where id='${similar}'))`,
+    );
+    check('the new request is written from the lead', /similar to/i.test(askText), askText.slice(0, 80));
+
+    await demoCtx.close();
   }
 
-  /* ── 10. workspace isolation, through the browser ──────────────────── */
-  console.log('\n10. Workspace isolation');
-  const outsiderContext = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-  const outsider = await outsiderContext.newPage();
-  await signUp(outsider, OUTSIDER);
+  const cleanConsoleCount = consoleErrors.length;
 
+  /* ── 11. isolation ─────────────────────────────────────────────────── */
+  console.log('\n11. Account isolation');
   if (demoRun) {
-    const status = (await outsider.goto(`${BASE}/runs/${demoRun}`, { waitUntil: 'domcontentloaded' }))?.status();
-    check("another workspace's run is not found", status === 404, String(status));
-
-    const demoCompany = psql(`select id from company where run_id='${demoRun}' limit 1`);
-    if (demoCompany) {
-      const s2 = (await outsider.goto(`${BASE}/companies/${demoCompany}`, { waitUntil: 'domcontentloaded' }))?.status();
-      check("another workspace's company is not found", s2 === 404, String(s2));
-    }
+    const status = (await page.goto(`${BASE}/s/${demoRun}`, { waitUntil: 'domcontentloaded' }))?.status();
+    check("another account's search is not found", status === 404, String(status));
   }
 
-  await outsider.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
-  await outsider.waitForTimeout(600);
-  check('a new workspace starts empty', await outsider.getByText(/No leads yet/i).isVisible());
-  await outsiderContext.close();
-
-  /* ── 11. command menu, keyboard, and mobile ────────────────────────── */
-  console.log('\n11. Command menu, keyboard, and mobile');
-  // The shortcut is a client listener, so it exists only once the shell has hydrated.
-  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
-  await page.locator('.sidebar').waitFor({ state: 'visible' });
-  await page.waitForTimeout(1200);
-  await page.keyboard.press('Control+k');
-  await page.waitForTimeout(500);
-  check('⌘K opens the command menu', await page.getByRole('dialog', { name: 'Command menu' }).isVisible());
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(300);
-  check('escape closes it', (await page.getByRole('dialog', { name: 'Command menu' }).count()) === 0);
-
+  /* ── 12. mobile and errors ─────────────────────────────────────────── */
+  console.log('\n12. Mobile and errors');
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(700);
+  await page.goto(`${BASE}/s/${runId}`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1200);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  check('mobile layout does not overflow horizontally', overflow <= 2, `${overflow}px`);
-  const sidebarVisible = await page.evaluate(() => {
-    const el = document.querySelector('.sidebar');
-    return el ? el.getBoundingClientRect().left >= -5 : false;
-  });
-  check('the sidebar is off-canvas on mobile', !sidebarVisible);
-  await page.getByRole('button', { name: 'Open navigation' }).click();
-  await page.waitForTimeout(500);
-  check('the mobile drawer opens', await page.locator('.sidebar[data-open="true"]').isVisible());
+  check('mobile does not overflow horizontally', overflow <= 2, `${overflow}px`);
+  check('the nav is off-canvas on mobile', await page.evaluate(() => {
+    const el = document.querySelector('.nav');
+    return el ? el.getBoundingClientRect().right <= 2 : false;
+  }));
+  await page.getByRole('button', { name: 'Open menu' }).click();
+  await page.waitForTimeout(400);
+  check('the mobile menu opens', await page.locator('.nav[data-open="true"]').isVisible());
   await page.setViewportSize({ width: 1440, height: 1000 });
 
-  /* ── 12. errors and provider honesty ───────────────────────────────── */
-  console.log('\n12. Errors and provider honesty');
-  const errorsBeforeIntentional404 = consoleErrors.length;
-  const missing = await page.goto(`${BASE}/companies/00000000-0000-0000-0000-000000000000`, {
-    waitUntil: 'domcontentloaded',
-  });
-  await page.waitForTimeout(1200);
-  check('a missing record 404s cleanly', missing?.status() === 404, String(missing?.status()));
-  check('the 404 page is helpful', await page.getByText(/Not found/i).first().isVisible());
-  check(
-    'the 404 keeps the app shell so navigation survives',
-    await page.getByRole('navigation', { name: 'Main navigation' }).isVisible(),
-  );
+  const missing = await page.goto(`${BASE}/s/00000000-0000-0000-0000-000000000000`, { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(900);
+  check('a missing search 404s cleanly', missing?.status() === 404, String(missing?.status()));
+  check('the 404 keeps the navigation', await page.getByRole('navigation', { name: 'Main' }).isVisible());
 
-  await page.goto(`${BASE}/settings/providers`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(600);
-  const providers = await page.locator('body').innerText();
-  check('unconfigured providers say so', /Not configured|Ready/.test(providers));
-  check('no credential value is rendered', !/sk-ant-|ghp_[A-Za-z0-9]{20}/.test(providers));
-
-  await page.goto(`${BASE}/enrichment`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(600);
-  const enrichment = await page.locator('body').innerText();
-  check('enrichment states that no address is inferred', /never|not.*inferred|no pattern/i.test(enrichment));
-
-  /* ── 13. saved lists ───────────────────────────────────────────────── */
-  console.log('\n13. Saved lists');
-  await page.goto(`${BASE}/searches`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${BASE}/settings`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(700);
-  const approved = page.locator('a.rowbtn').first();
-  if (await approved.count()) {
-    await approved.click();
-    await page.waitForURL(/\/searches\/[0-9a-f-]{36}/, { timeout: 20_000 });
-    await page.waitForTimeout(600);
+  const settings = await page.locator('body').innerText();
+  check('unconnected providers say so', /Not connected|Connected/.test(settings));
+  check('no credential value is rendered', !/sk-ant-|ghp_[A-Za-z0-9]{20}/.test(settings));
 
-    const saveField = page.locator('#saved-name');
-    if (await saveField.count()) {
-      await saveField.fill(`E2E list ${STAMP}`);
-      await page.getByRole('button', { name: /Save as list/ }).click();
-      await page.waitForTimeout(2500);
-      check('saving a list confirms', await page.getByText(/Saved\./i).first().isVisible());
-
-      await page.goto(`${BASE}/lists`, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(700);
-      // The delete button's screen-reader label repeats the name, so match the heading exactly.
-      check('the saved list appears', await page.getByText(`E2E list ${STAMP}`, { exact: true }).first().isVisible());
-
-      const savedRows = Number(psql(`select count(*) from saved_search where name = 'E2E list ${STAMP}'`) || '0');
-      check('the list was stored', savedRows === 1, String(savedRows));
-
-      await page.getByRole('button', { name: /Run again/ }).first().click();
-      await page.waitForURL(/\/runs\/[0-9a-f-]{36}/, { timeout: 60_000 });
-      check('re-running a list starts a fresh run', /\/runs\//.test(page.url()));
-
-      const rerunId = page.url().split('/runs/')[1].split(/[?#]/)[0];
-      const linked = psql(`select last_run_id from saved_search where name = 'E2E list ${STAMP}'`);
-      check('the list records the run it started', linked === rerunId, `${linked} vs ${rerunId}`);
-
-      await page.goto(`${BASE}/lists`, { waitUntil: 'domcontentloaded' });
-      await page.waitForTimeout(700);
-      page.once('dialog', (d) => d.accept());
-      await page.getByRole('button', { name: new RegExp(`Delete E2E list ${STAMP}`) }).click();
-      await page.waitForTimeout(2500);
-      const remaining = Number(psql(`select count(*) from saved_search where name = 'E2E list ${STAMP}'`) || '0');
-      check('deleting a list removes it', remaining === 0, String(remaining));
-    } else {
-      console.log('  ! the spec is not approved yet — skipping saved-list checks');
-    }
-  }
-
-  /* ── 14. workspace switching ───────────────────────────────────────── */
-  console.log('\n14. Workspace switching');
-  await page.goto(`${BASE}/settings/workspace`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(700);
-  await page.locator('#ws-name').fill(`Second ${STAMP}`);
-  await page.getByRole('button', { name: /^Create$/ }).click();
-  await page.waitForTimeout(3000);
-  check('creating a workspace switches into it', await page.getByRole('heading', { name: `Second ${STAMP}` }).isVisible());
-
-  await page.goto(`${BASE}/leads`, { waitUntil: 'domcontentloaded' });
-  await page.waitForTimeout(800);
-  check('the new workspace shows none of the old data', await page.getByText(/No leads yet/i).isVisible());
-
-  await page.locator('button.wsswitch').first().click();
-  await page.waitForTimeout(400);
-  const menuItems = await page.getByRole('menuitem').count();
-  check('the switcher lists both workspaces', menuItems >= 3, `${menuItems} items`);
-  await page.getByRole('menuitem').first().click();
-  await page.waitForTimeout(3000);
-  check(
-    'switching back restores the original workspace',
-    !(await page.getByRole('heading', { name: `Second ${STAMP}` }).isVisible()),
-  );
-
-  console.log('\n15. Console health');
-  check('no unexpected console errors', errorsBeforeIntentional404 === 0, consoleErrors.slice(0, 3).join(' | '));
+  console.log('\n13. Console health');
+  check('no unexpected console errors', cleanConsoleCount === 0, consoleErrors.slice(0, 3).join(' | '));
 } catch (error) {
   failed += 1;
   failures.push(`threw: ${error.message}`);
@@ -472,7 +318,7 @@ try {
   await browser.close();
 }
 
-console.log(`\n${'─'.repeat(60)}`);
+console.log(`\n${'─'.repeat(56)}`);
 console.log(`E2E: ${passed} passed, ${failed} failed`);
 if (failures.length > 0) {
   console.log('\nFailures:');

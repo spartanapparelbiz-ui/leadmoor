@@ -3,7 +3,6 @@
 import { z } from 'zod';
 import type { EvidenceSpan } from '@leadmoor/core';
 import { parseLeadSpec } from '@leadmoor/core';
-import { hostOf, humanize } from '../format';
 import { ready, services } from '../services';
 import { requireSession } from '../session';
 
@@ -146,7 +145,7 @@ export async function loadDossier(leadId: string): Promise<Dossier | null> {
 
   const toFact = (claim: (typeof companyClaims)[number], conflicting: boolean): DossierFact => ({
     field: claim.field,
-    label: FIELD_LABELS[claim.field] ?? humanize(claim.field.replace(/^\w+\./, '')),
+    label: FIELD_LABELS[claim.field] ?? words(claim.field.replace(/^\w+\./, '')),
     value: String(claim.value ?? ''),
     status: claim.status,
     confidence: claim.confidence,
@@ -239,4 +238,18 @@ export async function loadEvidenceText(
 
   void services();
   return { text: doc.normalizedText.slice(0, 20_000), url: doc.url, contentHash: doc.contentHash };
+}
+
+/** `employeeCount` → `Employee count`. Claim fields are camelCase; labels are not. */
+function words(value: string): string {
+  const text = value.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[._]/g, ' ').trim().toLowerCase();
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return url;
+  }
 }
