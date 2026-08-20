@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PolicyViolationError } from '@leadmoor/core';
 import {
   accessModeSchema,
   assertNotTierD,
@@ -69,6 +70,13 @@ export type SourceManifest = z.infer<typeof sourceManifestSchema>;
  * accepts nothing that did not come through here.
  */
 export function defineSource(input: unknown): SourceManifest {
+  // The tier and access-mode guards run *before* schema parsing. Zod would otherwise reject a
+  // Tier D manifest with a generic enum error, losing the explanation of why it is refused.
+  const raw = (input ?? {}) as { id?: unknown; tier?: unknown; accessMode?: unknown };
+  const label = typeof raw.id === 'string' ? `source "${raw.id}"` : 'source manifest';
+  assertNotTierD(raw.tier, label);
+  assertPermittedAccessMode(raw.accessMode, label);
+
   const shape = sourceManifestSchema.safeParse(input);
   if (!shape.success) {
     const where = shape.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
@@ -76,14 +84,10 @@ export function defineSource(input: unknown): SourceManifest {
   }
   const manifest = shape.data;
 
-  const context = `source "${manifest.id}"`;
-  assertNotTierD(manifest.tier, context);
-  assertPermittedAccessMode(manifest.accessMode, context);
-
   // Data minimization is not negotiable per-source.
   if (manifest.permittedFieldClasses.includes('personal_direct_contact')) {
-    throw new Error(
-      `Invalid source manifest ${context}: personal_direct_contact is prohibited product-wide and cannot be permitted by a source.`,
+    throw new PolicyViolationError(
+      `Invalid source manifest for "${manifest.id}": personal_direct_contact is prohibited product-wide and cannot be permitted by a source.`,
     );
   }
   return manifest;

@@ -135,7 +135,7 @@ export const fetchLog = pgTable(
     denialReason: text('denial_reason'),
     durationMs: integer('duration_ms'),
     evidenceId: text('evidence_id'),
-    fetchedAt: createdAt(),
+    fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ byRun: index('fetch_run_idx').on(t.runId), byUrl: index('fetch_url_idx').on(t.url) }),
 );

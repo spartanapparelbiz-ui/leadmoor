@@ -1,5 +1,6 @@
 import type { EvidenceRecord, Persona } from '@leadmoor/core';
 import type { PersonObservation } from '../types.js';
+import { rankAgainstPersona } from './titles.js';
 
 /**
  * Deterministic person extraction from stored evidence.
@@ -81,7 +82,11 @@ export function extractPeople(evidence: EvidenceRecord[], options: ExtractOption
   }
 
   return [...byName.values()]
-    .sort((a, b) => rankTitle(a.role, options.persona) - rankTitle(b.role, options.persona) || b.confidence - a.confidence)
+    .sort(
+      (a, b) =>
+        rankAgainstPersona(a.role, options.persona.titles) - rankAgainstPersona(b.role, options.persona.titles) ||
+        b.confidence - a.confidence,
+    )
     .slice(0, options.maxPeople);
 }
 
@@ -99,18 +104,43 @@ function findNameNear(
   const before = text.slice(beforeStart, titleAt);
   const after = text.slice(titleAt + titleLen, Math.min(text.length, titleAt + titleLen + WINDOW));
 
+  // Walk backwards: the name closest to the title is the best candidate.
   const beforeMatches = [...before.matchAll(NAME_RE)];
-  const last = beforeMatches[beforeMatches.length - 1];
-  if (last?.[1] && isPlausibleName(last[1])) {
-    const idx = last.index ?? 0;
-    return { name: last[1], quote: last[1], distance: before.length - (idx + last[1].length) };
+  for (let i = beforeMatches.length - 1; i >= 0; i--) {
+    const match = beforeMatches[i];
+    if (!match?.[1]) continue;
+    const trimmed = trimToName(match[1]);
+    if (!trimmed) continue;
+    const idx = (match.index ?? 0) + match[1].indexOf(trimmed);
+    return { name: trimmed, quote: trimmed, distance: before.length - (idx + trimmed.length) };
   }
 
-  const first = [...after.matchAll(NAME_RE)][0];
-  if (first?.[1] && isPlausibleName(first[1])) {
-    return { name: first[1], quote: first[1], distance: first.index ?? 0 };
+  for (const match of after.matchAll(NAME_RE)) {
+    if (!match[1]) continue;
+    const trimmed = trimToName(match[1]);
+    if (!trimmed) continue;
+    return { name: trimmed, quote: trimmed, distance: match.index ?? 0 };
   }
   return null;
+}
+
+/**
+ * Reduce a capitalized run to the personal name inside it.
+ *
+ * The name pattern is greedy, so a heading can be absorbed into the match — "Leadership Jane
+ * Okafor" is one run of capitalized words. Dropping leading non-name tokens recovers the real
+ * name instead of discarding a genuine person because a heading sat next to them.
+ */
+function trimToName(candidate: string): string | null {
+  let parts = candidate.split(/\s+/).filter(Boolean);
+
+  while (parts.length > 2 && parts[0] && NAME_STOPWORDS.has(parts[0].toLowerCase())) parts = parts.slice(1);
+  while (parts.length > 2 && parts[parts.length - 1] && NAME_STOPWORDS.has((parts[parts.length - 1] as string).toLowerCase())) {
+    parts = parts.slice(0, -1);
+  }
+
+  const trimmed = parts.join(' ');
+  return isPlausibleName(trimmed) ? trimmed : null;
 }
 
 function isPlausibleName(candidate: string): boolean {
@@ -128,14 +158,6 @@ function contextQuote(text: string, at: number, len: number): string {
   const start = Math.max(0, at - 70);
   const end = Math.min(text.length, at + len + 70);
   return text.slice(start, end).trim();
-}
-
-/** Persona titles rank ahead of the generic vocabulary, in the order the user listed them. */
-function rankTitle(role: string | null, persona: Persona): number {
-  if (!role) return 999;
-  const lower = role.toLowerCase();
-  const idx = persona.titles.findIndex((t) => lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower));
-  return idx >= 0 ? idx : 100 + BASE_TITLES.findIndex((t) => t.toLowerCase() === lower);
 }
 
 function normalizeTitle(raw: string): string {

@@ -72,10 +72,17 @@ export function extractEmployeeCount(doc: EvidenceRecord): PartialClaim | null {
       const whole = match[0];
       const lower = whole.toLowerCase();
 
-      // Reject counts that are clearly about customers, users, or downloads.
-      const contextStart = Math.max(0, (match.index ?? 0) - 60);
-      const context = text.slice(contextStart, (match.index ?? 0) + whole.length + 40).toLowerCase();
-      if (/\b(customers?|users?|downloads?|companies|developers use|businesses|clients?)\b/.test(context)) continue;
+      // "142 employees" states a headcount outright; only the ambiguous nouns ("team of 300",
+      // "we are 50 people") can be confused with a customer or user count, and only text *before*
+      // the number can change what it counts. "142 employees serving enterprise customers" is a
+      // headcount, so the guard must not look at what follows.
+      const statesHeadcountOutright = /\b(employees|staff|full[- ]time)\b/i.test(whole);
+      if (!statesHeadcountOutright) {
+        const before = text.slice(Math.max(0, (match.index ?? 0) - 70), match.index ?? 0).toLowerCase();
+        if (/\b(customers?|users?|downloads?|companies|businesses|clients?|installs?|subscribers?)\b/.test(before)) {
+          continue;
+        }
+      }
 
       const first = toInt(match[1]);
       const second = match[2] === undefined ? null : toInt(match[2]);

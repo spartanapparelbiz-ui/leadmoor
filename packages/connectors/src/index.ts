@@ -7,4 +7,5 @@ export * from './discovery/web-search.js';
 export * from './evidence/site.js';
 export * from './evidence/extract-company.js';
 export * from './people/extract.js';
+export * from './people/titles.js';
 export * from './email/index.js';

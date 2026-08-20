@@ -32,6 +32,7 @@ import type { RunHostAllowlist } from '@leadmoor/policy';
 import {
   extractCompanyClaims,
   extractPeople,
+  rankAgainstPersona,
   type CandidateCompany,
   type DiscoveryConnector,
   type DiscoveryReport,
@@ -841,13 +842,6 @@ async function pickPrimaryPerson(
   }
 
   return best ? { person: best.person, views: best.views, email: best.email, emailStatus: best.emailStatus, emailSourceId: best.emailSourceId } : null;
-}
-
-function rankAgainstPersona(role: string | null, titles: string[]): number {
-  if (!role) return 999;
-  const lower = role.toLowerCase();
-  const idx = titles.findIndex((t) => lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower));
-  return idx >= 0 ? idx : 500;
 }
 
 async function loadSuppressionKeys(ctx: PipelineContext): Promise<Set<string>> {
