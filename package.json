@@ -1,0 +1,44 @@
+{
+  "name": "leadmoor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LeadMoor — standalone evidence-first AI lead generation. No MOOR code, data, or runtime.",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "dev": "pnpm --filter @leadmoor/web dev",
+    "worker": "pnpm --filter @leadmoor/worker dev",
+    "build": "pnpm --filter @leadmoor/web build",
+    "start": "pnpm --filter @leadmoor/web start",
+    "db:push": "pnpm --filter @leadmoor/db push",
+    "db:seed": "pnpm --filter @leadmoor/db seed",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --pretty false",
+    "check:no-moor": "node scripts/check-no-moor.mjs",
+    "verify": "pnpm check:no-moor && pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "@leadmoor/db": "workspace:*",
+    "@leadmoor/core": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "zod": "^3.24.1",
+    "@leadmoor/policy": "workspace:*",
+    "@leadmoor/evidence": "workspace:*"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "type": "module"
+}
