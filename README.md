@@ -71,8 +71,10 @@ may return `verified`, and none ships in M0.
 pnpm install
 cp .env.example .env          # works as-is; every provider key is optional
 pnpm db:push                  # apply the schema
-pnpm dev                      # http://localhost:3000
+pnpm dev                      # http://localhost:3000 — create an account to begin
 ```
+
+`.env` lives at the repository root and configures the web app, the worker, and the scripts alike.
 
 With `LEADMOOR_EMBEDDED_WORKER=1` (the default in `.env.example`) the web process drains the job
 queue itself. For production, run a dedicated worker instead:
@@ -86,6 +88,12 @@ To see the product working end to end without any credentials:
 ```bash
 pnpm demo:seed                # real pipeline, fixture corpus, clearly labelled
 ```
+
+It creates an account (`demo@leadmoor.local` / `demo-password-1`), runs the real nine-stage
+pipeline against a corpus of fictional `.example` companies served at the HTTP transport seam, and
+flags the run `is_demo` so every screen labels it. Nothing about the pipeline is bypassed: the
+claims, citations, conflicts, and scores are genuine outputs of the same validator and scorer that
+production uses. Only the documents are fixtures.
 
 ### Commands
 
@@ -101,6 +109,7 @@ pnpm demo:seed                # real pipeline, fixture corpus, clearly labelled
 | `pnpm db:push` | Apply the schema (idempotent) |
 | `pnpm demo:seed` | Seed a demo run through the real pipeline |
 | `pnpm acceptance` | Drive a real request against the live stack and report honestly |
+| `pnpm e2e` | Drive the running app in a real browser and check it against the database |
 
 ---
 
@@ -129,17 +138,18 @@ and never as *search complete*.
 
 ```
 apps/
-  web/        Next.js — intake, spec review, run monitor, dossier, audit
+  web/        Next.js — auth, composer, spec review, live run, results, dossier, audit, settings
   worker/     durable job worker
 packages/
+  auth/       password hashing, sessions, workspaces, membership, roles
   core/       domain types, LeadSpec schema, tier guards, logger
-  db/         Drizzle schema, DDL, dual-driver client, audit log
+  db/         Drizzle schema, DDL, dual-driver client, workspace scope, audit log
   policy/     source manifests, registry, three-gate policy engine, robots
   evidence/   content-addressed store, span location, ProvenanceValidator
   claims/     claim engine, survivorship, conflict records
   connectors/ fetcher, search ports, discovery, extraction, email
   resolution/ normalization, blocking, matching, clustering
-  scoring/    evaluators, two-source rule, deterministic aggregation
+  scoring/    evaluators, two-source rule, deterministic aggregation, score decomposition
   llm/        Claude client, request compiler, evidence judge
   runtime/    budget governor, job queue, pipeline, run engine, services
   export/     CSV export gate, suppression, deletion
@@ -207,10 +217,29 @@ legitimately discovered through a permitted source, never an arbitrary URL.
 
 ---
 
+## Accounts and workspaces
+
+Everything the product stores belongs to a workspace: runs, specs, leads, companies, people,
+evidence, claims, exports, the do-not-contact list, and the audit trail. A workspace is not a
+filter applied at render time — it is a `workspace_id` predicate applied in SQL by `WorkspaceScope`,
+which is the only read path any route uses. A row with no workspace is visible to nobody rather
+than to everybody.
+
+`requireSession()` runs in the signed-in layout, so every page beneath it is authenticated by
+construction. It re-reads the caller's membership on every request, so removing someone takes
+effect on their next page load without revoking their session. Roles are `owner`, `admin`, and
+`member`; a workspace cannot lose its last owner.
+
+Two suites keep this honest. `workspace-isolation` is adversarial: it holds a real id from one
+workspace and tries to read, export, suppress, and delete it while scoped to another — every
+attempt must fail in the data layer, not by the interface declining to render a link.
+`scope-and-membership` covers the tables that carry no workspace column of their own and hang off
+a run instead, which is exactly where a leak would hide.
+
 ## Security
 
 - All credentials are server-side. The service module is `server-only`; importing it from a client
-  component is a build error.
+  component is a build error. There is no `NEXT_PUBLIC_` variable in this product.
 - Structured logs redact anything key-shaped, including inside error objects.
 - Every server action validates input with Zod and returns safe messages.
 - Expensive endpoints are rate limited.
@@ -218,6 +247,11 @@ legitimately discovered through a permitted source, never an arbitrary URL.
   redirect so a redirect cannot walk a fetch off an allowed host, and never retries a 403.
 - CSV export neutralizes spreadsheet formula injection.
 - Suppression is hash-keyed, so a suppressed identifier need not be stored in the clear.
+- There is no endpoint that fetches a URL supplied by the browser. First-party fetching is limited
+  to domains a permitted source actually discovered during that run.
+- Passwords are scrypt-hashed; session tokens are stored as SHA-256 digests behind an httpOnly,
+  same-site cookie. A sign-in attempt for an unknown account still performs a hash comparison, so
+  response time does not disclose whether an account exists.
 
 ## Compliance
 
@@ -248,3 +282,27 @@ and fabricated-claim and fabricated-email rejection.
 The integration suite runs the **real** pipeline — real policy gates, real fetcher, real validator,
 real scorer, real job queue — against a stubbed HTTP transport. Fixtures exist at exactly one seam:
 the network. The production pipeline never returns fixture data.
+
+Presentation is tested too, because the interface is where an honest pipeline is easiest to
+misrepresent. `presentation.test.ts` locks in that a score dimension the search never asked about
+renders as *not applicable* rather than zero, that an undecided criterion leaves the denominator
+instead of counting as a failure, that a rejected model answer never becomes a pass, that an
+unverified address is never labelled verified, and that a narrowed CSV export keeps the
+formula-injection guard and cannot invent a column by naming one.
+
+### In a browser
+
+```bash
+pnpm build && pnpm start
+pnpm demo:seed
+pnpm e2e
+```
+
+`pnpm e2e` drives the running application in Chromium the way a person would — registering an
+account, compiling a request, editing the spec, approving it, watching the run, opening the
+evidence drawer, disclosing provenance, exporting, suppressing, deleting, reading the audit log,
+saving and re-running a list, and switching workspaces. It checks what the screen says against
+what the database holds: that the run status shown matches the stored status, that a quote
+displayed in the interface exists byte-for-byte in a stored document, that a suppression actually
+wrote a key, and that a second account cannot reach the first's data. Sixty-nine checks, and it
+exits non-zero if any of them fails.
