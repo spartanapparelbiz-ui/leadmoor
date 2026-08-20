@@ -1,0 +1,703 @@
+<title>LeadMoor Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=Karla:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+:root{
+  --ground:#F4F6F3; --surface:#FFFFFF; --surface-2:#EDF0EC;
+  --ink:#151E1B; --ink-2:#33403B; --muted:#66736E; --faint:#8A9691;
+  --rule:#DCE1DC; --rule-strong:#C4CCC5;
+  --accent:#1C6B58; --accent-soft:#E2EEE9; --accent-ink:#12483C;
+  --copper:#A9662F; --copper-soft:#F5E9DE;
+  --crit:#9E3B2E; --crit-soft:#F7E4E1;
+  --shadow:0 1px 2px rgba(21,30,27,.05), 0 8px 24px -12px rgba(21,30,27,.14);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1412; --surface:#151D1A; --surface-2:#1B2521;
+    --ink:#E4EAE6; --ink-2:#C3CEC9; --muted:#8E9C97; --faint:#6E7B76;
+    --rule:#243029; --rule-strong:#314038;
+    --accent:#59BC9F; --accent-soft:#16302A; --accent-ink:#8FD8C3;
+    --copper:#D0904F; --copper-soft:#31241A;
+    --crit:#E08072; --crit-soft:#331D1A;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1412; --surface:#151D1A; --surface-2:#1B2521;
+  --ink:#E4EAE6; --ink-2:#C3CEC9; --muted:#8E9C97; --faint:#6E7B76;
+  --rule:#243029; --rule-strong:#314038;
+  --accent:#59BC9F; --accent-soft:#16302A; --accent-ink:#8FD8C3;
+  --copper:#D0904F; --copper-soft:#31241A;
+  --crit:#E08072; --crit-soft:#331D1A;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 28px -14px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--ground); color:var(--ink);
+  font-family:Karla,"Helvetica Neue",Arial,sans-serif;
+  font-size:16.5px; line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+.shell{max-width:1220px; margin:0 auto; padding:0 28px 120px;
+  display:grid; grid-template-columns:212px minmax(0,1fr); gap:56px; align-items:start}
+@media (max-width:940px){ .shell{grid-template-columns:minmax(0,1fr); gap:0} }
+
+/* ── masthead ─────────────────────────────── */
+.masthead{grid-column:1/-1; padding:64px 0 40px; border-bottom:1px solid var(--rule); margin-bottom:48px}
+.eyebrow{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--accent); font-weight:500}
+.masthead h1{font-family:Spectral,Georgia,serif; font-weight:600; font-size:clamp(2.5rem,6vw,4.1rem);
+  line-height:1.02; letter-spacing:-.022em; margin:.28em 0 .3em; text-wrap:balance}
+.standfirst{font-size:1.16rem; color:var(--ink-2); max-width:60ch; line-height:1.6}
+.standfirst em{font-family:Spectral,Georgia,serif; font-style:italic; color:var(--accent-ink)}
+.meta{display:flex; flex-wrap:wrap; gap:8px; margin-top:28px}
+.meta span{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11.5px; letter-spacing:.03em;
+  color:var(--muted); border:1px solid var(--rule); border-radius:2px; padding:5px 10px; background:var(--surface)}
+.meta span b{color:var(--ink-2); font-weight:500}
+
+/* ── nav rail ─────────────────────────────── */
+nav{position:sticky; top:24px; font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11.5px}
+nav ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
+nav a{display:block; padding:5px 0 5px 12px; color:var(--muted); text-decoration:none;
+  border-left:2px solid var(--rule); letter-spacing:.02em; transition:color .15s, border-color .15s}
+nav a:hover, nav a:focus-visible{color:var(--accent); border-left-color:var(--accent)}
+nav a:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+@media (max-width:940px){ nav{display:none} }
+
+/* ── sections ─────────────────────────────── */
+main{min-width:0; display:flex; flex-direction:column; gap:60px}
+section{scroll-margin-top:24px}
+.sec-label{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--faint); display:block; margin-bottom:10px}
+h2{font-family:Spectral,Georgia,serif; font-weight:600; font-size:1.92rem; line-height:1.18;
+  letter-spacing:-.014em; margin:0 0 .5em; text-wrap:balance}
+h3{font-family:Karla,sans-serif; font-weight:700; font-size:1.02rem; letter-spacing:.005em;
+  margin:2em 0 .5em; color:var(--ink)}
+p{margin:0 0 1.05em; max-width:66ch}
+main ul{max-width:66ch; padding-left:1.1em; margin:0 0 1.05em}
+main li{margin-bottom:.42em}
+strong{font-weight:700; color:var(--ink)}
+a{color:var(--accent)}
+code{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:.855em;
+  background:var(--surface-2); border:1px solid var(--rule); border-radius:2px; padding:1px 5px; color:var(--ink-2)}
+
+/* ── callouts ─────────────────────────────── */
+.pull{border-left:3px solid var(--accent); background:var(--accent-soft);
+  padding:18px 22px; margin:0 0 1.4em; border-radius:0 3px 3px 0}
+.pull p{margin:0; max-width:62ch; color:var(--accent-ink); font-size:1.02rem}
+.brief{background:var(--surface); border:1px solid var(--rule); border-radius:3px;
+  padding:24px 26px; box-shadow:var(--shadow); margin-bottom:1.4em}
+.brief q{font-family:Spectral,Georgia,serif; font-size:1.14rem; font-style:italic;
+  line-height:1.55; color:var(--ink-2); display:block; quotes:none}
+.brief .attrib{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px;
+  letter-spacing:.13em; text-transform:uppercase; color:var(--faint); margin-top:16px; display:block}
+
+/* ── commitment cards ─────────────────────── */
+.commits{display:grid; gap:1px; background:var(--rule); border:1px solid var(--rule); border-radius:3px; overflow:hidden}
+.commit{background:var(--surface); padding:24px 26px}
+.commit .k{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--accent); display:block; margin-bottom:8px}
+.commit h3{margin:0 0 .45em; font-size:1.1rem}
+.commit p{margin:0; font-size:.96rem; color:var(--ink-2)}
+.commit p + p{margin-top:.8em}
+
+/* ── two-plane diagram ────────────────────── */
+.planes{background:var(--surface); border:1px solid var(--rule); border-radius:3px;
+  padding:26px; margin:1.5em 0; box-shadow:var(--shadow)}
+.planes svg{display:block; width:100%; height:auto}
+
+/* ── funnel ───────────────────────────────── */
+.funnel{display:flex; flex-direction:column; gap:1px; background:var(--rule);
+  border:1px solid var(--rule); border-radius:3px; overflow:hidden}
+.fgroup{background:var(--surface-2); padding:9px 20px;
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10.5px; letter-spacing:.15em;
+  text-transform:uppercase; color:var(--muted); display:flex; justify-content:space-between; align-items:baseline; gap:12px}
+.fgroup b{color:var(--ink-2); font-weight:500}
+.stage{background:var(--surface); padding:15px 20px; display:grid;
+  grid-template-columns:34px minmax(0,1fr) 92px 122px; gap:16px; align-items:center}
+@media (max-width:720px){ .stage{grid-template-columns:30px minmax(0,1fr); gap:12px}
+  .stage .bar-cell,.stage .cost{grid-column:2} .stage .cost{justify-self:start} }
+.stage .n{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12px; font-weight:700;
+  color:var(--faint); font-variant-numeric:tabular-nums}
+.stage .body strong{display:block; font-size:.97rem; line-height:1.3}
+.stage .body span{display:block; font-size:.855rem; color:var(--muted); line-height:1.4; margin-top:2px}
+.cost{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.09em;
+  text-transform:uppercase; padding:3px 7px; border-radius:2px; justify-self:end; white-space:nowrap}
+.cost.free{background:var(--accent-soft); color:var(--accent-ink)}
+.cost.api{background:var(--copper-soft); color:var(--copper)}
+.cost.llm{background:var(--crit-soft); color:var(--crit)}
+.cost.cpu{background:var(--surface-2); color:var(--muted)}
+.bar-cell{display:flex; align-items:center; gap:8px; justify-self:stretch}
+.bar{height:7px; background:var(--accent); border-radius:1px; opacity:.85}
+.bar.ghost{background:var(--rule-strong); opacity:1}
+.bar-cell .pct{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px;
+  color:var(--faint); font-variant-numeric:tabular-nums; white-space:nowrap}
+.gate{background:var(--copper-soft) !important; border-top:1px solid var(--copper); border-bottom:1px solid var(--copper)}
+.gate .n{color:var(--copper)}
+
+/* ── tables ───────────────────────────────── */
+.tw{overflow-x:auto; border:1px solid var(--rule); border-radius:3px; background:var(--surface); margin-bottom:1.4em}
+table{border-collapse:collapse; width:100%; min-width:520px; font-size:.9rem}
+th{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.13em;
+  text-transform:uppercase; color:var(--muted); text-align:left; font-weight:500;
+  padding:11px 16px; background:var(--surface-2); border-bottom:1px solid var(--rule); white-space:nowrap}
+td{padding:13px 16px; border-bottom:1px solid var(--rule); vertical-align:top; color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+td strong{color:var(--ink)}
+.tier{font-family:"JetBrains Mono",ui-monospace,monospace; font-weight:700; font-size:1.05rem}
+.tier.a{color:var(--accent)} .tier.b{color:var(--accent)} .tier.c{color:var(--copper)} .tier.d{color:var(--crit)}
+tr.excluded td{background:var(--crit-soft)}
+.sev{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:10px; letter-spacing:.09em;
+  text-transform:uppercase; padding:3px 7px; border-radius:2px; white-space:nowrap}
+.sev.high{background:var(--crit-soft); color:var(--crit)}
+.sev.med{background:var(--copper-soft); color:var(--copper)}
+.sev.low{background:var(--surface-2); color:var(--muted)}
+
+/* ── code blocks ──────────────────────────── */
+pre{font-family:"JetBrains Mono",ui-monospace,monospace; font-size:12.5px; line-height:1.7;
+  background:var(--surface); color:var(--ink-2); border:1px solid var(--rule); border-radius:3px;
+  padding:20px 22px; overflow-x:auto; margin:0 0 1.4em}
+pre b{color:var(--accent); font-weight:500}
+pre i{color:var(--faint); font-style:normal}
+
+/* ── phases ───────────────────────────────── */
+.phases{display:flex; flex-direction:column; gap:1px; background:var(--rule);
+  border:1px solid var(--rule); border-radius:3px; overflow:hidden}
+.phase{background:var(--surface); padding:18px 22px; display:grid;
+  grid-template-columns:56px minmax(0,1fr); gap:18px; align-items:start}
+.phase .m{font-family:"JetBrains Mono",ui-monospace,monospace; font-weight:700; font-size:.95rem; color:var(--accent)}
+.phase strong{display:block; font-size:.98rem; margin-bottom:3px}
+.phase span{font-size:.895rem; color:var(--muted); line-height:1.5; display:block}
+
+/* ── questions ────────────────────────────── */
+.qs{counter-reset:q; display:flex; flex-direction:column; gap:14px}
+.q{display:grid; grid-template-columns:30px minmax(0,1fr); gap:14px; align-items:start}
+.q::before{counter-increment:q; content:counter(q); font-family:"JetBrains Mono",ui-monospace,monospace;
+  font-size:11px; font-weight:700; color:var(--accent); background:var(--accent-soft);
+  width:26px; height:26px; display:grid; place-items:center; border-radius:2px; margin-top:2px}
+.q div{max-width:64ch} .q strong{display:block; margin-bottom:2px}
+.q span{color:var(--ink-2); font-size:.95rem}
+
+footer{grid-column:1/-1; margin-top:72px; padding-top:26px; border-top:1px solid var(--rule);
+  font-family:"JetBrains Mono",ui-monospace,monospace; font-size:11px; color:var(--faint); letter-spacing:.03em}
+footer a{color:var(--muted); text-decoration:none; border-bottom:1px solid var(--rule)}
+footer a:hover{color:var(--accent)}
+.srcs{display:flex; flex-direction:column; gap:5px; margin-top:12px}
+@media (prefers-reduced-motion:reduce){ *{transition:none !important; animation:none !important} }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <span class="eyebrow">Architecture proposal · pre-implementation</span>
+    <h1>LeadMoor</h1>
+    <p class="standfirst">An AI agent that turns a sentence into a scored lead list where
+    <em>every claim carries a citation</em> — a URL, a timestamp, and the exact snippet it came from.
+    Lead databases are a commodity. Auditable reasoning over evidence is not.</p>
+    <div class="meta">
+      <span><b>Status</b> &nbsp;proposal · no code written</span>
+      <span><b>Repo</b> &nbsp;empty · 0 commits</span>
+      <span><b>MOOR coupling</b> &nbsp;none · none possible</span>
+      <span><b>Date</b> &nbsp;2026-08-20</span>
+    </div>
+  </header>
+
+  <nav aria-label="Contents">
+    <ol>
+      <li><a href="#brief">The brief</a></li>
+      <li><a href="#commitments">Three commitments</a></li>
+      <li><a href="#pipeline">Pipeline</a></li>
+      <li><a href="#evidence">Anti-hallucination</a></li>
+      <li><a href="#scoring">Scoring</a></li>
+      <li><a href="#resolution">Entity resolution</a></li>
+      <li><a href="#sources">Data sources</a></li>
+      <li><a href="#compliance">Compliance</a></li>
+      <li><a href="#model">Data model</a></li>
+      <li><a href="#stack">Technology</a></li>
+      <li><a href="#moor">Separation</a></li>
+      <li><a href="#phases">Delivery</a></li>
+      <li><a href="#risks">Risks</a></li>
+      <li><a href="#open">Open questions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="brief">
+      <span class="sec-label">The brief</span>
+      <h2>One sentence in, a defensible list out</h2>
+      <div class="brief">
+        <q>Series B–C fintech companies in the UK and Netherlands, 50–300 employees, that have
+        shipped something with AI in the last six months and are hiring backend engineers.
+        I want the VP Engineering or Head of Platform. Skip anyone already in our CRM.</q>
+        <span class="attrib">Representative request</span>
+      </div>
+      <p>Six distinct problems hide in that sentence: parse intent into machine-checkable criteria,
+      discover candidates from permitted sources, resolve them into real companies without merging
+      two different ones, enrich them, score them against criteria that are partly fuzzy, and prove
+      each answer. The architecture below is organised around the observation that only one of those
+      six wants a language model in the critical path.</p>
+    </section>
+
+    <section id="commitments">
+      <span class="sec-label">Load-bearing decisions</span>
+      <h2>Three commitments</h2>
+      <p>Everything else follows from these. Relax any one and the product becomes a plausible-sounding
+      hallucination machine that a customer will catch before we do.</p>
+      <div class="commits">
+        <div class="commit">
+          <span class="k">Commitment one</span>
+          <h3>The model never authors a fact</h3>
+          <p>The LLM may do exactly three things: <strong>compile</strong> the request into a typed
+          spec, <strong>propose</strong> queries, and <strong>judge</strong> supplied evidence while
+          citing the spans it used. It is never asked “which companies match this?” and never permitted
+          to emit a company name, a headcount, or an email address from its own weights.</p>
+          <p>A verdict citing evidence that does not exist — or quoting a span absent from the cited
+          document — is rejected by a validator and marked <code>insufficient_evidence</code>. It fails
+          closed. An unknown is reported as an unknown, never scored as a zero.</p>
+        </div>
+        <div class="commit">
+          <span class="k">Commitment two</span>
+          <h3>A non-deterministic planner over a deterministic substrate</h3>
+          <p>The model's output is a <strong>LeadSpec</strong>: a versioned, typed, readable document
+          of filters, personas, rubric, and budget. The user reads and edits it before a penny is spent.
+          Execution is then an ordinary deterministic pipeline with no model in the control flow.</p>
+          <p>This buys reproducible runs, replayable audits, cost ceilings that actually hold, a
+          debuggable failure surface, and cheap re-runs when one weight changes.</p>
+        </div>
+        <div class="commit">
+          <span class="k">Commitment three</span>
+          <h3>Permission is a code path, not a policy document</h3>
+          <p>Every connector ships a manifest declaring legal basis, jurisdiction, permitted field
+          classes, robots posture, rate limits, retention, and redistribution rights. A policy engine
+          evaluates it at three gates: before fetch, after extraction, and at export.</p>
+          <p>“Permitted public data” has to be something the system enforces, not something the
+          README claims.</p>
+        </div>
+      </div>
+
+      <div class="planes">
+        <svg viewBox="0 0 720 132" role="img" aria-label="Natural language is compiled by the LLM into a typed LeadSpec, after which a deterministic pipeline executes with no model in the control flow.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--faint)"/>
+            </marker>
+          </defs>
+          <rect x="1" y="26" width="286" height="76" rx="3" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+          <rect x="393" y="26" width="326" height="76" rx="3" fill="var(--surface-2)" stroke="var(--rule-strong)" stroke-width="1"/>
+          <text x="16" y="18" fill="var(--accent)" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.6">PLANNING PLANE · NON-DETERMINISTIC</text>
+          <text x="408" y="18" fill="var(--muted)" font-family="JetBrains Mono, monospace" font-size="10" letter-spacing="1.6">EXECUTION PLANE · DETERMINISTIC</text>
+          <text x="16" y="58" fill="var(--ink)" font-family="Karla, sans-serif" font-size="14" font-weight="700">Natural language</text>
+          <text x="16" y="80" fill="var(--accent-ink)" font-family="Karla, sans-serif" font-size="12.5">LLM compiles intent → typed spec</text>
+          <text x="408" y="58" fill="var(--ink)" font-family="Karla, sans-serif" font-size="14" font-weight="700">Discover · resolve · enrich · score</text>
+          <text x="408" y="80" fill="var(--muted)" font-family="Karla, sans-serif" font-size="12.5">No model in the control flow</text>
+          <line x1="290" y1="64" x2="386" y2="64" stroke="var(--faint)" stroke-width="1.2" marker-end="url(#ar)"/>
+          <text x="338" y="55" text-anchor="middle" fill="var(--ink-2)" font-family="JetBrains Mono, monospace" font-size="10" font-weight="700">LeadSpec</text>
+          <text x="338" y="86" text-anchor="middle" fill="var(--faint)" font-family="JetBrains Mono, monospace" font-size="9">user-editable</text>
+          <text x="360" y="124" text-anchor="middle" fill="var(--faint)" font-family="JetBrains Mono, monospace" font-size="9.5" letter-spacing=".6">the spec is the contract — and the only place intent is interpreted</text>
+        </svg>
+      </div>
+    </section>
+
+    <section id="pipeline">
+      <span class="sec-label">Pipeline</span>
+      <h2>Twelve stages, shaped as a funnel</h2>
+      <p>The ordering is the economics. Discovery is wide and cheap; people discovery and email
+      verification are the expensive operations. The hard-filter gate sits deliberately
+      <strong>before</strong> them, because spending model tokens on a company that fails a headcount
+      check is the easiest way to make this product uneconomic. Bars show roughly how much of the
+      candidate set survives each stage.</p>
+      <div class="funnel">
+
+        <div class="fgroup"><span>Plan</span><b>no candidates yet</b></div>
+        <div class="stage">
+          <span class="n">00</span>
+          <div class="body"><strong>Intake</strong><span>Request, ICP docs, CRM sample, exclusion list</span></div>
+          <div class="bar-cell"></div><span class="cost free">free</span>
+        </div>
+        <div class="stage">
+          <span class="n">01</span>
+          <div class="body"><strong>Spec compilation</strong><span>LLM → typed LeadSpec; at most three clarifying questions</span></div>
+          <div class="bar-cell"></div><span class="cost llm">1 opus call</span>
+        </div>
+        <div class="stage">
+          <span class="n">02</span>
+          <div class="body"><strong>Source planning</strong><span>Spec → connector plan and queries; policy pre-flight</span></div>
+          <div class="bar-cell"></div><span class="cost llm">1 sonnet call</span>
+        </div>
+
+        <div class="fgroup"><span>Discover</span><b>wide net, high recall</b></div>
+        <div class="stage">
+          <span class="n">03</span>
+          <div class="body"><strong>Discovery</strong><span>Parallel fan-out across connectors; precision comes later</span></div>
+          <div class="bar-cell"><div class="bar" style="width:100%"></div><span class="pct">100%</span></div>
+          <span class="cost api">api units</span>
+        </div>
+        <div class="stage">
+          <span class="n">04</span>
+          <div class="body"><strong>Company resolution</strong><span>Normalize → block → pairwise → cluster; duplicates collapse</span></div>
+          <div class="bar-cell"><div class="bar" style="width:72%"></div><span class="pct">72%</span></div>
+          <span class="cost cpu">cpu only</span>
+        </div>
+        <div class="stage">
+          <span class="n">05</span>
+          <div class="body"><strong>Company enrichment</strong><span>Cheapest-provider-first waterfall; every field written as a Claim</span></div>
+          <div class="bar-cell"><div class="bar" style="width:72%"></div><span class="pct">72%</span></div>
+          <span class="cost api">api units</span>
+        </div>
+
+        <div class="fgroup"><span>Qualify</span><b>the gate that pays for everything</b></div>
+        <div class="stage gate">
+          <span class="n">06</span>
+          <div class="body"><strong>Hard-filter gate</strong><span>SQL predicates from the spec — drops are kept with their reason</span></div>
+          <div class="bar-cell"><div class="bar" style="width:28%"></div><span class="pct">28%</span></div>
+          <span class="cost free">free</span>
+        </div>
+        <div class="stage">
+          <span class="n">07</span>
+          <div class="body"><strong>People discovery</strong><span>Persona-matched contacts, at surviving companies only</span></div>
+          <div class="bar-cell"><div class="bar" style="width:28%"></div><span class="pct">28%</span></div>
+          <span class="cost api">api units</span>
+        </div>
+        <div class="stage">
+          <span class="n">08</span>
+          <div class="body"><strong>People resolution</strong><span>Dedupe, verify role, verify email deliverability</span></div>
+          <div class="bar-cell"><div class="bar" style="width:24%"></div><span class="pct">24%</span></div>
+          <span class="cost api">api units</span>
+        </div>
+
+        <div class="fgroup"><span>Decide</span><b>model spend concentrated here</b></div>
+        <div class="stage">
+          <span class="n">09</span>
+          <div class="body"><strong>Scoring</strong><span>Predicates run free; LLM judges only the genuinely fuzzy criteria</span></div>
+          <div class="bar-cell"><div class="bar" style="width:24%"></div><span class="pct">24%</span></div>
+          <span class="cost llm">sonnet × lead</span>
+        </div>
+        <div class="stage">
+          <span class="n">10</span>
+          <div class="body"><strong>Evidence assembly</strong><span>Dossier plus a rationale grounded strictly in cited spans</span></div>
+          <div class="bar-cell"><div class="bar" style="width:24%"></div><span class="pct">24%</span></div>
+          <span class="cost llm">sonnet × lead</span>
+        </div>
+        <div class="stage">
+          <span class="n">11</span>
+          <div class="body"><strong>Review &amp; export</strong><span>Human queue → CSV, JSON, CRM push, webhook — provenance attached</span></div>
+          <div class="bar-cell"><div class="bar" style="width:18%"></div><span class="pct">18%</span></div>
+          <span class="cost free">free</span>
+        </div>
+      </div>
+      <p style="margin-top:1.3em">Accept and reject decisions at stage 11 feed back into rubric weights,
+      which is the only loop in the system that touches the spec.</p>
+    </section>
+
+    <section id="evidence">
+      <span class="sec-label">Anti-hallucination</span>
+      <h2>Claims, not fields</h2>
+      <p>A company record is not a row of values. It is a set of claims, and the “current” value of any
+      field is a <em>view</em> computed by survivorship rules — source trust tier, recency, corroboration
+      count — never a stored truth.</p>
+      <pre><b>Claim</b> {
+  entity_ref, field, value,
+  evidence_id, extractor, confidence, observed_at
+}</pre>
+      <p>Two sources disagreeing produces a <code>conflict</code> record that surfaces in the interface
+      rather than a silent overwrite. This one modelling choice is what makes evidence, scoring,
+      conflict resolution, data-subject requests, and audit all fall out of the same table.</p>
+
+      <h3>Citation validation</h3>
+      <p>Every model verdict returns <code>evidence_ids[]</code> and quoted spans. A validator checks
+      each ID exists in this run and each span appears in that evidence's extracted text — exact match
+      first, normalized fuzzy match second. Failures are not retried into compliance; they are excluded
+      from the score.</p>
+
+      <h3>Content-addressed snapshots</h3>
+      <p>Every fetch is stored keyed by SHA-256 of its body, with URL, HTTP status, robots decision, and
+      fetch time. A score from three months ago can be re-audited against exactly the bytes that produced
+      it — which is also what makes GDPR's “tell them where you got it” answerable per lead rather than
+      per vendor.</p>
+
+      <h3>Coverage, always visible</h3>
+      <div class="pull"><p>A lead scoring 82% on four of nine criteria is a different object from one
+      scoring 82% on nine of nine. The interface must never conflate them, so every lead carries a
+      coverage figure alongside its score.</p></div>
+      <p>Evidence also decays: a half-life per field class, because headcount from a fourteen-month-old
+      page is not the same claim as headcount from last week, and the score should know that.</p>
+    </section>
+
+    <section id="scoring">
+      <span class="sec-label">Scoring</span>
+      <h2>Judgment and arithmetic, kept apart</h2>
+      <pre><b>Criterion</b> {
+  id, name,
+  kind: hard_filter | weighted | bonus | disqualifier,
+  weight,
+  evaluator: structured_predicate | numeric_range | llm_judge,
+  evidence_requirement
+}</pre>
+      <ul>
+        <li><strong>Hard filters and numeric ranges</strong> run as SQL — free, exact, no model involved.</li>
+        <li><strong>LLM judges</strong> handle only genuinely fuzzy criteria: “sells into regulated
+        healthcare”, “has invested in AI recently”. Each returns a verdict, confidence, evidence IDs,
+        quoted spans, and a rationale.</li>
+        <li><strong>Aggregation is deterministic arithmetic</strong> over those verdicts. The model
+        never emits “87 out of 100”. A model that scores holistically cannot be tuned, audited, or
+        explained.</li>
+      </ul>
+      <p>Because judgment and aggregation are separate, user feedback tunes <strong>weights</strong>
+      rather than prompts — explanations stay stable while ranking improves.</p>
+      <div class="pull"><p><strong>The cost lever:</strong> the rubric is byte-identical across every
+      lead in a run. Put it in a cached prompt prefix and per-lead marginal cost collapses by roughly an
+      order of magnitude. This is the concrete reason a rubric-plus-lead split beats one all-in-one
+      agent prompt.</p></div>
+    </section>
+
+    <section id="resolution">
+      <span class="sec-label">Entity resolution</span>
+      <h2>Merging two real companies is worse than a duplicate</h2>
+      <p>So merges are conservative and <strong>always reversible</strong> — clusters are recorded as
+      links, never destructive overwrites. Ambiguous pairs land in a review queue instead of
+      auto-merging.</p>
+      <h3>Companies</h3>
+      <p>The identity spine is the registered domain, but a domain alone breaks on rebrands, regional
+      domains, holding structures, and acquisitions. The identifier ladder runs:</p>
+      <ul>
+        <li><strong>Strong</strong> — LEI, SEC CIK, Companies House number, verified primary domain</li>
+        <li><strong>Medium</strong> — normalized legal name + country, canonical redirect target, social handles</li>
+        <li><strong>Weak</strong> — trading name, embedding similarity of description</li>
+      </ul>
+      <p>Blocking on normalized name tokens, domain root, and country keeps pairwise comparison
+      tractable; vector similarity catches what token blocking misses.</p>
+      <h3>People</h3>
+      <p>Company plus normalized name, with verified work email as a strong key. Job changes make person
+      records bitemporal — we track <em>when</em> a role was observed, not only what it is. Suppression
+      and CRM dedup are hash-based, so a customer's existing contacts can be excluded without us ever
+      storing their CRM in the clear.</p>
+    </section>
+
+    <section id="sources">
+      <span class="sec-label">Data sources</span>
+      <h2>Tiered by permission posture</h2>
+      <p>Current case law sets the line, and it is not where most people assume. <em>hiQ v. LinkedIn</em>
+      established that scraping public pages does not violate the CFAA. <em>Meta v. Bright Data</em> (2024)
+      declined to block <strong>logged-out</strong> scraping of public pages, reasoning that platform terms
+      bind account holders rather than logged-out visitors. <em>Reddit v. Perplexity</em> (2025) then moved
+      the risk to a different question entirely — circumvention of technical access controls under DMCA
+      §1201.</p>
+      <div class="pull"><p>So the line we draw is not “public versus private”. It is
+      <strong>logged-out and un-circumvented</strong> versus everything else.</p></div>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tier</th><th>Category</th><th>Examples</th><th>Posture</th></tr></thead>
+          <tbody>
+            <tr><td class="tier b">B</td><td><strong>Open registries &amp; government data</strong></td>
+              <td>SEC EDGAR, UK Companies House, GLEIF (CC0), USPTO, SAM.gov, EU business registers</td>
+              <td>Explicitly open. Highest trust tier for survivorship, and cheap. <strong>Start here.</strong></td></tr>
+            <tr><td class="tier a">A</td><td><strong>Licensed APIs</strong></td>
+              <td>People Data Labs, Coresignal, Apollo, Crunchbase, Crustdata</td>
+              <td>Contractual permission. Read redistribution terms <em>before</em> building each connector — several forbid derivative databases or re-export, which directly constrains what may land in a CSV.</td></tr>
+            <tr><td class="tier c">C</td><td><strong>Search APIs + logged-out fetch</strong></td>
+              <td>Exa, Brave Search API, Serper; company sites, careers pages, press releases, docs</td>
+              <td>Permitted with robots.txt respect, rate limiting, an honest user-agent, no login, and no anti-bot circumvention.</td></tr>
+            <tr class="excluded"><td class="tier d">D</td><td><strong>Excluded by policy</strong></td>
+              <td>Logged-in social scraping, anti-bot or CAPTCHA circumvention, consumer data brokers, datasets of unknown provenance, personal mobile and home addresses</td>
+              <td>Blocked in code. No connector may be registered in this tier — the policy engine has no code path that permits it.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="compliance">
+      <span class="sec-label">Compliance</span>
+      <h2>A subsystem, not a hardening pass</h2>
+      <p>GDPR permits B2B prospecting under <strong>legitimate interest</strong> rather than opt-in, but
+      conditions attach — and each maps to a component that has to exist from the start. Cumulative GDPR
+      fines passed €7.1B by January 2026; this is not a thing to retrofit.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Requirement</th><th>Component that satisfies it</th></tr></thead>
+          <tbody>
+            <tr><td>Message relevant to their professional role</td><td>Persona and rubric are role-scoped by construction</td></tr>
+            <tr><td>Transparency about where data came from</td><td>Provenance travels with every exported lead</td></tr>
+            <tr><td>Easy opt-out, honored before the next send</td><td>Suppression service, hash-keyed, checked at export</td></tr>
+            <tr><td>Documented legal basis per record</td><td>Source manifest recorded on every claim</td></tr>
+            <tr><td>Retention limits (~3 years without interaction)</td><td>TTL per source, automated purge job</td></tr>
+            <tr><td>Data subject access and erasure</td><td>DSAR endpoint over the claim store</td></tr>
+            <tr><td>Demonstrable compliance</td><td>Append-only audit log per run and per fetch</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p><strong>Data minimization is a default, not a setting.</strong> Business-context fields only:
+      work email, title, employer, public professional profile. Personal mobile numbers and home
+      addresses are not collected — those are the fields that turn a B2B tool into a Clearview-shaped
+      liability.</p>
+      <p><strong>EU AI Act.</strong> B2B lead scoring is not an Annex III high-risk use case, so that
+      regime does not attach — and the high-risk deadline was in any case deferred to December 2027 by
+      Regulation (EU) 2026/1744. Article 50 transparency duties remain live on the original schedule and
+      would apply if outreach drafting is ever added.</p>
+    </section>
+
+    <section id="model">
+      <span class="sec-label">Data model &amp; ports</span>
+      <h2>The table everything hangs off</h2>
+      <pre>tenant · user
+
+lead_request       <i>raw NL + attachments</i>
+lead_spec          <i>versioned typed IR, user-editable</i>
+run                <i>spec_version, status, budget, metrics</i>
+
+source             <i>registry: legal basis, rights, limits, trust tier</i>
+fetch              <i>url, source, status, robots_decision, ts, cost</i>
+evidence           <i>sha256, storage_uri, url, fetched_at, license</i>
+
+company            <i>canonical</i>
+company_identifier <i>domain | LEI | CIK | CH# | ticker</i>
+person             <i>canonical, bitemporal roles</i>
+person_identifier  <i>email_hash | profile_url</i>
+
+<b>claim</b>              <i>entity, field, value, evidence_id, confidence, observed_at</i>
+conflict           <i>competing claims + survivorship decision</i>
+entity_link        <i>candidate → canonical, match_score, method, decided_by</i>
+
+criterion_verdict  <i>run, entity, criterion, verdict, evidence_ids[], rationale</i>
+lead               <i>run, company, person, score, band, coverage, status</i>
+
+export · suppression · dsar_request · audit_log · feedback</pre>
+      <p>If <code>claim</code> is right, everything else follows from it. If it is wrong — if we store
+      flat mutable fields on <code>company</code> — none of the rest can be retrofitted later.</p>
+      <h3>Ports</h3>
+      <p>Connectors are plugins behind stable interfaces, each shipping a policy manifest, so adding a
+      source is a config and adapter change rather than a pipeline change.</p>
+      <pre><b>DiscoveryConnector</b>    discover(spec, budget) → CandidateStream
+<b>EnrichmentConnector</b>   enrich(entity, fields) → Claim[]
+<b>SearchProvider</b>        search(query) → SearchResult[]
+<b>Fetcher</b>               fetch(url, policy) → Evidence
+<b>Resolver</b>              resolve(candidates) → Cluster[]
+<b>Scorer</b>                score(entity, rubric, evidence) → CriterionVerdict[]
+<b>Exporter</b>              export(leads, format) → Artifact
+<b>PolicyEngine</b>          check(action, context) → Allow | Deny(reason)
+<b>RunEngine</b>             durable orchestration
+<b>LLMClient</b>             structured output, prompt caching, cost metering</pre>
+    </section>
+
+    <section id="stack">
+      <span class="sec-label">Technology</span>
+      <h2>Recommendation</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Concern</th><th>Choice</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td>Language</td><td><strong>TypeScript</strong>, pnpm workspaces</td><td>One language across API, workers, and UI; Zod carries the LeadSpec contract end to end</td></tr>
+            <tr><td>Datastore</td><td><strong>PostgreSQL</strong> + pgvector</td><td>Claims, resolution, and semantic blocking in one store; no premature vector database</td></tr>
+            <tr><td>Evidence store</td><td><strong>S3 / R2</strong>, content-addressed</td><td>Immutable snapshots, cheap, auditable</td></tr>
+            <tr><td>Orchestration</td><td><strong>Inngest</strong> behind a <code>RunEngine</code> port</td><td>Runs span minutes to hours across flaky third-party APIs and pause for human review. Move to Temporal if step counts or self-hosting demand it</td></tr>
+            <tr><td>Models</td><td><strong>Claude</strong>, tiered</td><td>Opus for spec compilation and hard adjudication, Sonnet per-lead, Haiku for normalization; rubric held in a cached prefix</td></tr>
+            <tr><td>Frontend</td><td><strong>Next.js</strong></td><td>Spec editor, run monitor, review queue, dossier view</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Two notes. <strong>Durable execution is the one piece that is painful to retrofit</strong> — a
+      lead run is a long-lived saga with human-in-the-loop signals and partial failure, and bolting that
+      onto a request/response service later means rewriting the pipeline. Start with it. And resolution
+      in TypeScript is a judgment call: if match quality plateaus, a Python worker using Splink behind the
+      <code>Resolver</code> port is the escape hatch, which is precisely why <code>Resolver</code> is a port.</p>
+      <pre>leadmoor/
+  apps/      api · web · worker
+  packages/  core · policy · connectors · resolution · scoring
+             evidence · llm · export · db
+  infra/
+  docs/adr/</pre>
+    </section>
+
+    <section id="moor">
+      <span class="sec-label">Separation</span>
+      <h2>Standalone from MOOR</h2>
+      <p>The requirement is structural, and right now it is free. <code>spartanapparelbiz-ui/leadmoor</code>
+      is an empty repository with zero commits, and no MOOR source is present in this environment. There
+      is nothing to disentangle — only something to prevent from forming.</p>
+      <ul>
+        <li>Separate repository, database, storage bucket, secrets, and deployment</li>
+        <li>Separate authentication — no shared identity provider, no shared session</li>
+        <li>A CI dependency check that fails the build on any import resolving to a MOOR package</li>
+        <li>If a utility is ever needed in both products, it is <strong>duplicated</strong>. Duplication is cheaper than coupling here</li>
+        <li>Any future integration goes over the public HTTP API and webhooks — the same contract a third party would use</li>
+      </ul>
+      <div class="pull"><p><strong>One flag: the name.</strong> “LeadMoor” reads as a MOOR sub-product.
+      If this needs to stand alone as a brand — separately positioned, sold, or owned — the name works
+      against that. A rename costs nothing today and gets expensive after the first domain, customer,
+      and contract.</p></div>
+    </section>
+
+    <section id="phases">
+      <span class="sec-label">Delivery</span>
+      <h2>Phases</h2>
+      <div class="phases">
+        <div class="phase"><span class="m">M0</span><div><strong>Walking skeleton</strong>
+          <span>One real request → spec → Tier B and Tier C connectors → evidence → naive resolution →
+          rubric score → CSV, with every field traceable to a URL. This deliberately proves the hardest
+          thing first: that a claim survives the trip from an exported cell back to a byte range in a
+          stored document.</span></div></div>
+        <div class="phase"><span class="m">M1</span><div><strong>Quality</strong>
+          <span>Real entity resolution with a review queue, waterfall enrichment, people discovery,
+          email verification, dossier interface.</span></div></div>
+        <div class="phase"><span class="m">M2</span><div><strong>Compliance hardening</strong>
+          <span>Policy engine live at all three gates, suppression, DSAR, retention purge, audit log.</span></div></div>
+        <div class="phase"><span class="m">M3</span><div><strong>Learning</strong>
+          <span>Feedback into weight calibration, signal and trigger sources, CRM push, scheduled
+          monitoring runs.</span></div></div>
+        <div class="phase"><span class="m">M4</span><div><strong>Scale</strong>
+          <span>Multi-tenant isolation, cost optimization, connector SDK.</span></div></div>
+      </div>
+    </section>
+
+    <section id="risks">
+      <span class="sec-label">Risks</span>
+      <h2>What can actually kill this</h2>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Risk</th><th>Severity</th><th>Mitigation</th></tr></thead>
+          <tbody>
+            <tr><td>Provider terms forbid derivative databases or re-export</td><td><span class="sev high">High</span></td><td>Read every contract before writing its connector; encode rights in the manifest; the export gate enforces per field</td></tr>
+            <tr><td>Hallucinated leads destroy trust permanently</td><td><span class="sev high">High</span></td><td>Citation validator, fail-closed verdicts, coverage always visible</td></tr>
+            <tr><td>Model cost per lead × thousands of leads</td><td><span class="sev high">High</span></td><td>Funnel ordering, prompt caching, model tiering, a budget governor that halts the run</td></tr>
+            <tr><td>Bad merges in entity resolution</td><td><span class="sev med">Medium</span></td><td>Conservative thresholds, uncertainty band routed to human review, reversible links</td></tr>
+            <tr><td>Email verification gaps damaging sender reputation</td><td><span class="sev med">Medium</span></td><td>Verify before export, no catch-all pattern guessing by default, suppression enforced</td></tr>
+            <tr><td>Users expecting instant results</td><td><span class="sev med">Medium</span></td><td>Runs are async with streaming partial results, not request/response</td></tr>
+            <tr><td>Vendor lock-in on data providers</td><td><span class="sev low">Low</span></td><td>Every provider sits behind a port; the waterfall design assumes substitution</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="open">
+      <span class="sec-label">Open questions</span>
+      <h2>Worth settling before M0</h2>
+      <p>These change build order rather than architecture — the design supports either answer in each case.</p>
+      <div class="qs">
+        <div class="q"><div><strong>Geography</strong><span>EU and UK in scope from day one materially raises compliance weight. US-only is a lighter M0.</span></div></div>
+        <div class="q"><div><strong>Data strategy</strong><span>A licensed-provider backbone is faster but costs per record and constrains exports. Web-first discovery is slower and cheaper at volume, and fully ours.</span></div></div>
+        <div class="q"><div><strong>Volume shape</strong><span>Tens of high-conviction leads with deep dossiers, or thousands with thin evidence? This sets the funnel's economics.</span></div></div>
+        <div class="q"><div><strong>Outreach</strong><span>If drafting or sending ever comes into scope, Article 50 transparency and CAN-SPAM attach, and the architecture needs a sending subsystem it does not have today.</span></div></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>
+    LEADMOOR · ARCHITECTURE PROPOSAL · 2026-08-20 · NO CODE WRITTEN
+    <div class="srcs">
+      <span>Sources consulted —</span>
+      <a href="https://www.coronium.io/blog/is-web-scraping-legal-2026">Web scraping legality 2026: hiQ, Meta v Bright Data, Reddit v Perplexity</a>
+      <a href="https://use-apify.com/docs/what-is-apify/is-apify-legal">hiQ, Bright Data, GDPR &amp; the AI Act</a>
+      <a href="https://derrick-app.com/gdpr-b2b">GDPR &amp; B2B prospecting compliance guide 2026</a>
+      <a href="https://litemail.ai/blog/gdpr-legitimate-interest-cold-email-2026">GDPR legitimate interest for cold email in 2026</a>
+      <a href="https://www.gibsondunn.com/eu-ai-act-omnibus-agreement-postponed-high-risk-deadlines-and-other-key-changes/">EU AI Act omnibus — postponed high-risk deadlines</a>
+      <a href="https://www.joneswalker.com/en/insights/blogs/ai-law-blog/yes-august-2-still-matters-the-eu-approved-a-high-risk-ai-delay-but-most-trans.html">August 2 still matters: transparency obligations remain</a>
+      <a href="https://coldiq.com/blog/best-b2b-data-apis">Best B2B data APIs in 2026</a>
+      <a href="https://www.clay.com/guides/best/b2b-data-providers">B2B data providers 2026</a>
+    </div>
+  </footer>
+
+</div>
