@@ -21,10 +21,92 @@ import {
 const id = () => text('id').primaryKey();
 const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 
+
+/* ── identity and workspaces ──────────────────────────────────────────── */
+
+export const appUser = pgTable(
+  'app_user',
+  {
+    id: id(),
+    email: text('email').notNull(),
+    /** Lower-cased copy carrying the uniqueness constraint, so logins are case-insensitive. */
+    emailLower: text('email_lower').notNull(),
+    name: text('name').notNull().default(''),
+    /** scrypt: salt:derivedKey. The plaintext never leaves the request that created it. */
+    passwordHash: text('password_hash').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uniq: uniqueIndex('app_user_email_uniq').on(t.emailLower) }),
+);
+
+export const workspace = pgTable(
+  'workspace',
+  {
+    id: id(),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    createdBy: text('created_by').references(() => appUser.id, { onDelete: 'set null' }),
+    settings: jsonb('settings').notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => ({ uniq: uniqueIndex('workspace_slug_uniq').on(t.slug) }),
+);
+
+export const workspaceMember = pgTable(
+  'workspace_member',
+  {
+    id: id(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => appUser.id, { onDelete: 'cascade' }),
+    /** owner | admin | member */
+    role: text('role').notNull().default('member'),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('workspace_member_uniq').on(t.workspaceId, t.userId),
+    byUser: index('workspace_member_user_idx').on(t.userId),
+  }),
+);
+
+export const userSession = pgTable(
+  'user_session',
+  {
+    id: id(),
+    /** sha256 of the cookie value. The raw token is never stored. */
+    tokenHash: text('token_hash').notNull(),
+    userId: text('user_id').notNull().references(() => appUser.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'set null' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => ({
+    uniq: uniqueIndex('user_session_token_uniq').on(t.tokenHash),
+    byUser: index('user_session_user_idx').on(t.userId),
+  }),
+);
+
+export const savedSearch = pgTable(
+  'saved_search',
+  {
+    id: id(),
+    workspaceId: text('workspace_id').notNull().references(() => workspace.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    spec: jsonb('spec').notNull(),
+    sourceRequest: text('source_request').notNull().default(''),
+    createdBy: text('created_by').references(() => appUser.id, { onDelete: 'set null' }),
+    lastRunId: text('last_run_id'),
+    lastRunAt: timestamp('last_run_at', { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => ({ byWorkspace: index('saved_search_ws_idx').on(t.workspaceId, t.createdAt) }),
+);
+
 /* ── request → spec → run ─────────────────────────────────────────────── */
+
 
 export const leadRequest = pgTable('lead_request', {
   id: id(),
+  workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
   rawText: text('raw_text').notNull(),
   createdBy: text('created_by').notNull().default('local'),
   createdAt: createdAt(),
@@ -35,6 +117,7 @@ export const leadSpec = pgTable(
   {
     id: id(),
     requestId: text('request_id').notNull().references(() => leadRequest.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     version: integer('version').notNull().default(1),
     /** The typed LeadSpec document. Validated by Zod on every read and write. */
     spec: jsonb('spec').notNull(),
@@ -51,6 +134,7 @@ export const run = pgTable(
   {
     id: id(),
     specId: text('spec_id').notNull().references(() => leadSpec.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     status: text('status').notNull().default('queued'),
     /**
      * True only for runs created by the demo seeder. Production code never sets this, and the UI
@@ -134,6 +218,7 @@ export const fetchLog = pgTable(
     sourceId: text('source_id').notNull(),
     url: text('url').notNull(),
     method: text('method').notNull().default('GET'),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     status: text('status').notNull(),
     httpStatus: integer('http_status'),
     robotsDecision: text('robots_decision').notNull().default('not_applicable'),
@@ -154,6 +239,7 @@ export const evidence = pgTable(
     sourceId: text('source_id').notNull(),
     url: text('url').notNull(),
     title: text('title'),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     documentRole: text('document_role').notNull().default('other'),
     httpStatus: integer('http_status'),
     contentHash: text('content_hash').notNull(),
@@ -179,6 +265,7 @@ export const company = pgTable(
     id: id(),
     runId: text('run_id').references(() => run.id, { onDelete: 'cascade' }),
     /** Display name. Identity, not a fact claim. */
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     canonicalName: text('canonical_name').notNull(),
     normalizedName: text('normalized_name').notNull(),
     /** Identity spine, per §6. Nullable until a domain is verified. */
@@ -220,6 +307,7 @@ export const person = pgTable(
     runId: text('run_id').references(() => run.id, { onDelete: 'cascade' }),
     companyId: text('company_id').notNull().references(() => company.id, { onDelete: 'cascade' }),
     fullName: text('full_name').notNull(),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     normalizedName: text('normalized_name').notNull(),
     createdAt: createdAt(),
   },
@@ -264,6 +352,7 @@ export const claim = pgTable(
     subjectId: text('subject_id').notNull(),
     field: text('field').notNull(),
     fieldClass: text('field_class').notNull(),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     value: jsonb('value'),
     /** EvidenceSpan[]. A claim with an empty array can never reach status 'supported'. */
     spans: jsonb('spans').notNull().default([]),
@@ -323,6 +412,7 @@ export const lead = pgTable(
     id: id(),
     runId: text('run_id').notNull().references(() => run.id, { onDelete: 'cascade' }),
     companyId: text('company_id').notNull().references(() => company.id, { onDelete: 'cascade' }),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     personId: text('person_id').references(() => person.id, { onDelete: 'set null' }),
     score: real('score').notNull().default(0),
     band: text('band').notNull().default('unqualified'),
@@ -350,6 +440,7 @@ export const suppression = pgTable(
   'suppression',
   {
     id: id(),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     key: text('key').notNull(),
     kind: text('kind').notNull(),
     reason: text('reason').notNull().default('user_request'),
@@ -360,6 +451,7 @@ export const suppression = pgTable(
 
 export const deletionRequest = pgTable('deletion_request', {
   id: id(),
+  workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
   subjectType: text('subject_type').notNull(),
   subjectId: text('subject_id').notNull(),
   requestedBy: text('requested_by').notNull().default('local'),
@@ -373,6 +465,7 @@ export const deletionRequest = pgTable('deletion_request', {
 
 export const exportRecord = pgTable('export', {
   id: id(),
+  workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
   runId: text('run_id').notNull().references(() => run.id, { onDelete: 'cascade' }),
   format: text('format').notNull(),
   rowCount: integer('row_count').notNull().default(0),
@@ -386,6 +479,7 @@ export const auditLog = pgTable(
   'audit_log',
   {
     id: id(),
+    workspaceId: text('workspace_id').references(() => workspace.id, { onDelete: 'cascade' }),
     runId: text('run_id'),
     action: text('action').notNull(),
     subject: text('subject'),
@@ -396,6 +490,11 @@ export const auditLog = pgTable(
 );
 
 export const schema = {
+  appUser,
+  workspace,
+  workspaceMember,
+  userSession,
+  savedSearch,
   leadRequest,
   leadSpec,
   run,

@@ -55,14 +55,26 @@ export class RunEngine {
     return this.queue;
   }
 
-  /** Creates a run for an approved spec and enqueues its first stage. */
+  /**
+   * Creates a run for an approved spec and enqueues its first stage.
+   *
+   * The workspace comes from the spec, which was written under an authenticated session — so a run
+   * always inherits its owner rather than taking one from the caller.
+   */
   async start(specId: string): Promise<string> {
     const spec = await this.loadSpec(this.services.db, specId);
+    const specRows = await this.services.db
+      .select()
+      .from(leadSpecTable)
+      .where(eq(leadSpecTable.id, specId))
+      .limit(1);
+    const workspaceId = specRows[0]?.workspaceId ?? null;
     const runId = newId();
 
     await this.services.db.insert(runTable).values({
       id: runId,
       specId,
+      workspaceId,
       status: 'queued',
       usage: {} as never,
       stats: {} as never,
@@ -109,8 +121,15 @@ export class RunEngine {
         await this.services.audit.record('run.started', { runId: job.runId });
       }
 
+      const workspaceId = runRow.workspaceId;
+      if (!workspaceId) {
+        // A run with no owner cannot write workspace-scoped rows. Fail loudly rather than
+        // producing records nobody can see.
+        throw new Error('run has no workspace; it cannot be executed');
+      }
+
       const runHosts = await this.hostsFor(job.runId);
-      const runServices = this.services.forRun({ budget, runHosts });
+      const runServices = this.services.forRun({ budget, runHosts, workspaceId });
 
       await markStage(this.services.db, job.runId, stage, 'running');
       await this.services.audit.record('run.stage_started', { runId: job.runId, subject: stage });
@@ -118,10 +137,11 @@ export class RunEngine {
       const ctx: PipelineContext = {
         db: this.services.db,
         runId: job.runId,
+        workspaceId,
         spec,
-        claims: this.services.claims,
-        evidence: this.services.evidence,
-        audit: this.services.audit,
+        claims: runServices.claims,
+        evidence: runServices.evidence,
+        audit: runServices.audit,
         budget,
         runHosts,
         discovery: runServices.discovery,

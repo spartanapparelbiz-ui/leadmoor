@@ -55,6 +55,8 @@ import type { BudgetGovernor } from './budget.js';
 export interface PipelineContext {
   db: Db;
   runId: string;
+  /** Every row this run writes carries it. Set from the run, which was created under a session. */
+  workspaceId: string;
   spec: LeadSpec;
   claims: ClaimEngine;
   evidence: EvidenceStore;
@@ -258,6 +260,7 @@ async function persistCandidate(ctx: PipelineContext, candidate: CandidateCompan
   await ctx.db.insert(companyTable).values({
     id: companyId,
     runId: ctx.runId,
+    workspaceId: ctx.workspaceId,
     canonicalName: candidate.name.slice(0, 300),
     normalizedName: normalizeCompanyName(candidate.name),
     primaryDomain: domain,
@@ -447,6 +450,7 @@ async function applyHardFilters(ctx: PipelineContext): Promise<StageResult> {
       await ctx.db.insert(leadTable).values({
         id: newId(),
         runId: ctx.runId,
+        workspaceId: ctx.workspaceId,
         companyId: company.id,
         personId: null,
         score: 0,
@@ -489,6 +493,7 @@ async function discoverPeople(ctx: PipelineContext): Promise<StageResult> {
       await ctx.db.insert(personTable).values({
         id: personId,
         runId: ctx.runId,
+        workspaceId: ctx.workspaceId,
         companyId: company.id,
         fullName: observation.fullName.slice(0, 200),
         normalizedName: normalizePersonName(observation.fullName),
@@ -730,6 +735,7 @@ async function scoreLeads(ctx: PipelineContext): Promise<StageResult> {
       .values({
         id: newId(),
         runId: ctx.runId,
+        workspaceId: ctx.workspaceId,
         companyId: company.id,
         personId: primary?.person.id ?? null,
         score: result.score,
@@ -868,7 +874,12 @@ async function pickPrimaryPerson(
 }
 
 async function loadSuppressionKeys(ctx: PipelineContext): Promise<Set<string>> {
-  const rows = await ctx.db.select({ key: suppressionTable.key }).from(suppressionTable);
+  // Suppression is per workspace: one customer's do-not-contact list must not silently filter
+  // another's results.
+  const rows = await ctx.db
+    .select({ key: suppressionTable.key })
+    .from(suppressionTable)
+    .where(eq(suppressionTable.workspaceId, ctx.workspaceId));
   return new Set(rows.map((r) => r.key));
 }
 

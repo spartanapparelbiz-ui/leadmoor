@@ -26,7 +26,20 @@ export class ClaimEngine {
     private readonly evidence: EvidenceStore,
     private readonly sources: SourceRegistry,
     private readonly audit: AuditLog,
+    /** Stamped on every claim so facts are workspace-scoped like the entities they describe. */
+    private readonly workspaceId: string | null = null,
   ) {}
+
+  forWorkspace(workspaceId: string): ClaimEngine {
+    return new ClaimEngine(
+      this.db,
+      this.validator,
+      this.evidence,
+      this.sources,
+      this.audit.forWorkspace(workspaceId),
+      workspaceId,
+    );
+  }
 
   /** Validate and persist. Returns the stored claim, whatever its status. */
   async createClaim(input: ClaimInput): Promise<Claim> {
@@ -35,6 +48,7 @@ export class ClaimEngine {
     await this.db.insert(claimTable).values({
       id: claim.id,
       runId: claim.runId,
+      workspaceId: this.workspaceId,
       subjectType: claim.subjectType,
       subjectId: claim.subjectId,
       field: claim.field,

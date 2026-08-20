@@ -16,7 +16,14 @@ export class EvidenceStore {
   constructor(
     private readonly db: Db,
     private readonly blobs: BlobStore,
+    /** Stamped on every stored document so evidence is workspace-scoped like everything else. */
+    private readonly workspaceId: string | null = null,
   ) {}
+
+  /** A store bound to a workspace. Used by the run engine once the run's owner is known. */
+  forWorkspace(workspaceId: string): EvidenceStore {
+    return new EvidenceStore(this.db, this.blobs, workspaceId);
+  }
 
   async put(input: EvidenceInput): Promise<EvidenceRecord> {
     const contentHash = sha256(input.rawBody);
@@ -28,6 +35,7 @@ export class EvidenceStore {
     const row = {
       id,
       runId: input.runId,
+      workspaceId: this.workspaceId,
       sourceId: input.sourceId,
       url: input.url,
       title: input.title ?? null,

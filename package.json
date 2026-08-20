@@ -2,7 +2,7 @@
   "name": "leadmoor",
   "private": true,
   "version": "0.1.0",
-  "description": "LeadMoor — standalone evidence-first AI lead generation. No MOOR code, data, or runtime.",
+  "description": "LeadMoor \u2014 standalone evidence-first AI lead generation. No MOOR code, data, or runtime.",
   "engines": {
     "node": ">=20"
   },
@@ -44,7 +44,8 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@leadmoor/auth": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

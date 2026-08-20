@@ -13,6 +13,8 @@ const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_REDIRECTS = 4;
 
 export interface HttpFetcherOptions {
+  /** Stamped on every fetch record so retrieval history is workspace-scoped. */
+  workspaceId?: string | null;
   userAgent?: string;
   timeoutMs?: number;
   logger?: Logger;
@@ -274,6 +276,7 @@ export class HttpFetcher implements Fetcher {
   }): Promise<void> {
     await this.db.insert(fetchLog).values({
       id: newId(),
+      workspaceId: this.options.workspaceId ?? null,
       runId: row.runId,
       sourceId: row.sourceId,
       url: row.url,

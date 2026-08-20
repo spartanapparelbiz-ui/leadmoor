@@ -20,6 +20,7 @@ import { DeletionService, ExportService, SuppressionService } from '@leadmoor/ex
 import { RunEngine, Services } from '@leadmoor/runtime';
 import { MemoryBlobStore } from '@leadmoor/evidence';
 import { silentLogger, stubTransport, testSpec } from '../helpers/harness.js';
+import { seedWorkspace } from '../helpers/db.js';
 
 /**
  * Full-pipeline integration.
@@ -172,6 +173,7 @@ describe('full pipeline against permitted sources', () => {
   let services: Services;
   let engine: RunEngine;
   let runId: string;
+  let workspaceId: string;
   let transport: ReturnType<typeof stubTransport>;
 
   beforeAll(async () => {
@@ -186,12 +188,20 @@ describe('full pipeline against permitted sources', () => {
     });
     await services.migrate();
 
+    workspaceId = (await seedWorkspace(services.db)).workspaceId;
+
     const requestId = newId();
     const specId = newId();
-    await services.db.insert(leadRequest).values({ id: requestId, rawText: SPEC.sourceRequest });
-    await services.db
-      .insert(leadSpecTable)
-      .values({ id: specId, requestId, version: 1, spec: SPEC as never, origin: 'compiled', approvedAt: new Date() });
+    await services.db.insert(leadRequest).values({ id: requestId, workspaceId, rawText: SPEC.sourceRequest });
+    await services.db.insert(leadSpecTable).values({
+      id: specId,
+      requestId,
+      workspaceId,
+      version: 1,
+      spec: SPEC as never,
+      origin: 'compiled',
+      approvedAt: new Date(),
+    });
 
     engine = new RunEngine(services, 'test-worker', silentLogger);
     runId = await engine.start(specId);
@@ -365,7 +375,7 @@ describe('full pipeline against permitted sources', () => {
 
     it('exports qualified leads as CSV with provenance', async () => {
       const audit = new AuditLog(services.db);
-      const result = await new ExportService(services.db, policy, audit).exportRun(runId);
+      const result = await new ExportService(services.db, policy, audit, workspaceId).exportRun(runId);
       expect(result.rows.length).toBeGreaterThan(0);
 
       const acme = result.rows.find((r) => r.domain === 'acme.example');
@@ -379,7 +389,7 @@ describe('full pipeline against permitted sources', () => {
 
     it('excludes a suppressed lead from export', async () => {
       const audit = new AuditLog(services.db);
-      const suppression = new SuppressionService(services.db, audit);
+      const suppression = new SuppressionService(services.db, audit, workspaceId);
       const leads = await services.db.select().from(leadTable).where(eq(leadTable.runId, runId));
       const companies = await services.db.select().from(companyTable).where(eq(companyTable.runId, runId));
       const byId = new Map(companies.map((c) => [c.id, c]));
@@ -388,15 +398,15 @@ describe('full pipeline against permitted sources', () => {
       await suppression.suppressLead(acmeLead!.id);
       expect(await suppression.isSuppressed('domain', 'acme.example')).toBe(true);
 
-      const after = await new ExportService(services.db, policy, audit).exportRun(runId);
+      const after = await new ExportService(services.db, policy, audit, workspaceId).exportRun(runId);
       expect(after.rows.find((r) => r.domain === 'acme.example')).toBeUndefined();
       expect(after.suppressedCount).toBeGreaterThan(0);
     });
 
     it('deletes a person without leaving orphaned contact data', async () => {
       const audit = new AuditLog(services.db);
-      const suppression = new SuppressionService(services.db, audit);
-      const deletion = new DeletionService(services.db, audit, suppression);
+      const suppression = new SuppressionService(services.db, audit, workspaceId);
+      const deletion = new DeletionService(services.db, audit, suppression, workspaceId);
 
       const people = await services.db.select().from(personTable).where(eq(personTable.runId, runId));
       const jane = people.find((p) => p.fullName === 'Jane Okafor');
@@ -418,7 +428,7 @@ describe('full pipeline against permitted sources', () => {
     });
 
     it('keeps the suppression key after deletion so future runs still honor it', async () => {
-      const suppression = new SuppressionService(services.db, new AuditLog(services.db));
+      const suppression = new SuppressionService(services.db, new AuditLog(services.db), workspaceId);
       const keys = await suppression.list();
       expect(keys.some((k) => k.reason === 'deletion_request')).toBe(true);
       // The key is a hash — the raw identifier is not retained anywhere in it.
@@ -443,12 +453,14 @@ describe('a blocked provider is reported, never silently empty', () => {
     });
     await services.migrate();
 
+    const blockedWorkspace = (await seedWorkspace(services.db)).workspaceId;
     const requestId = newId();
     const specId = newId();
-    await services.db.insert(leadRequest).values({ id: requestId, rawText: 'x' });
+    await services.db.insert(leadRequest).values({ id: requestId, workspaceId: blockedWorkspace, rawText: 'x' });
     await services.db.insert(leadSpecTable).values({
       id: specId,
       requestId,
+      workspaceId: blockedWorkspace,
       version: 1,
       spec: testSpec({ discovery: { queries: ['blocked test query'], sources: ['github_public'], maxCompanies: 5 } }) as never,
       origin: 'compiled',

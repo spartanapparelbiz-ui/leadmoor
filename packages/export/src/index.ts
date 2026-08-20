@@ -67,6 +67,8 @@ export class ExportService {
     private readonly db: Db,
     private readonly policy: PolicyEngine,
     private readonly audit: AuditLog,
+    /** Exports never cross a workspace boundary; the scope is required, not optional. */
+    private readonly workspaceId: string,
   ) {}
 
   /**
@@ -78,19 +80,34 @@ export class ExportService {
    */
   async exportRun(runId: string, opts: { includeUnqualified?: boolean } = {}): Promise<ExportResult> {
     const suppressedKeys = new Set(
-      (await this.db.select({ key: suppressionTable.key }).from(suppressionTable)).map((r) => r.key),
+      (
+        await this.db
+          .select({ key: suppressionTable.key })
+          .from(suppressionTable)
+          .where(eq(suppressionTable.workspaceId, this.workspaceId))
+      ).map((r) => r.key),
     );
 
     const leads = await this.db
       .select()
       .from(leadTable)
-      .where(and(eq(leadTable.runId, runId), isNull(leadTable.suppressedAt)));
+      .where(
+        and(
+          eq(leadTable.runId, runId),
+          eq(leadTable.workspaceId, this.workspaceId),
+          isNull(leadTable.suppressedAt),
+        ),
+      );
 
     const rows: ExportRow[] = [];
     const withheld = new Set<string>();
-    let suppressedCount = (
-      await this.db.select({ id: leadTable.id }).from(leadTable).where(eq(leadTable.runId, runId))
-    ).length - leads.length;
+    let suppressedCount =
+      (
+        await this.db
+          .select({ id: leadTable.id })
+          .from(leadTable)
+          .where(and(eq(leadTable.runId, runId), eq(leadTable.workspaceId, this.workspaceId)))
+      ).length - leads.length;
 
     for (const lead of leads) {
       if (!opts.includeUnqualified && lead.status !== 'qualified') continue;
@@ -191,6 +208,7 @@ export class ExportService {
     const exportId = newId();
     await this.db.insert(exportTable).values({
       id: exportId,
+      workspaceId: this.workspaceId,
       runId,
       format: 'csv',
       rowCount: rows.length,
@@ -240,11 +258,12 @@ function csvCell(value: string): string {
  */
 async function upsertSuppression(
   db: Db,
+  workspaceId: string,
   key: string,
   kind: string,
   reason: string,
 ): Promise<void> {
-  const insert = db.insert(suppressionTable).values({ id: newId(), key, kind, reason });
+  const insert = db.insert(suppressionTable).values({ id: newId(), workspaceId, key, kind, reason });
   if (reason === 'deletion_request') {
     await insert.onConflictDoUpdate({ target: suppressionTable.key, set: { reason } });
   } else {
@@ -258,11 +277,19 @@ export class SuppressionService {
   constructor(
     private readonly db: Db,
     private readonly audit: AuditLog,
+    /** A do-not-contact list belongs to one workspace and must not filter another's results. */
+    private readonly workspaceId: string,
   ) {}
 
   /** Suppresses a lead by company domain and, when present, by person. Idempotent. */
   async suppressLead(leadId: string, reason = 'user_request'): Promise<{ keys: string[] }> {
-    const lead = (await this.db.select().from(leadTable).where(eq(leadTable.id, leadId)).limit(1))[0];
+    const lead = (
+      await this.db
+        .select()
+        .from(leadTable)
+        .where(and(eq(leadTable.id, leadId), eq(leadTable.workspaceId, this.workspaceId)))
+        .limit(1)
+    )[0];
     if (!lead) throw new Error(`lead ${leadId} not found`);
 
     const company = (
@@ -278,7 +305,7 @@ export class SuppressionService {
     if (lead.email) keys.push(suppressionKey('email', lead.email));
 
     for (const key of keys) {
-      await upsertSuppression(this.db, key, key.split(':')[0] ?? 'domain', reason);
+      await upsertSuppression(this.db, this.workspaceId, key, key.split(':')[0] ?? 'domain', reason);
     }
 
     await this.db
@@ -291,11 +318,17 @@ export class SuppressionService {
   }
 
   async suppressCompany(companyId: string, reason = 'user_request'): Promise<void> {
-    const company = (await this.db.select().from(companyTable).where(eq(companyTable.id, companyId)).limit(1))[0];
+    const company = (
+      await this.db
+        .select()
+        .from(companyTable)
+        .where(and(eq(companyTable.id, companyId), eq(companyTable.workspaceId, this.workspaceId)))
+        .limit(1)
+    )[0];
     if (!company) throw new Error(`company ${companyId} not found`);
 
     const key = suppressionKey('domain', company.primaryDomain ?? company.canonicalName);
-    await upsertSuppression(this.db, key, 'domain', reason);
+    await upsertSuppression(this.db, this.workspaceId, key, 'domain', reason);
 
     await this.db
       .update(leadTable)
@@ -306,11 +339,17 @@ export class SuppressionService {
   }
 
   async suppressPerson(personId: string, reason = 'user_request'): Promise<void> {
-    const person = (await this.db.select().from(personTable).where(eq(personTable.id, personId)).limit(1))[0];
+    const person = (
+      await this.db
+        .select()
+        .from(personTable)
+        .where(and(eq(personTable.id, personId), eq(personTable.workspaceId, this.workspaceId)))
+        .limit(1)
+    )[0];
     if (!person) throw new Error(`person ${personId} not found`);
 
     const key = suppressionKey('person', `${person.companyId}:${person.normalizedName}`);
-    await upsertSuppression(this.db, key, 'person', reason);
+    await upsertSuppression(this.db, this.workspaceId, key, 'person', reason);
 
     await this.db
       .update(leadTable)
@@ -322,14 +361,19 @@ export class SuppressionService {
 
   async isSuppressed(kind: 'email' | 'domain' | 'person', value: string): Promise<boolean> {
     const key = suppressionKey(kind, value);
-    const rows = await this.db.select().from(suppressionTable).where(eq(suppressionTable.key, key)).limit(1);
+    const rows = await this.db
+      .select()
+      .from(suppressionTable)
+      .where(and(eq(suppressionTable.key, key), eq(suppressionTable.workspaceId, this.workspaceId)))
+      .limit(1);
     return rows.length > 0;
   }
 
   async list(): Promise<Array<{ key: string; kind: string; reason: string }>> {
     return this.db
       .select({ key: suppressionTable.key, kind: suppressionTable.kind, reason: suppressionTable.reason })
-      .from(suppressionTable);
+      .from(suppressionTable)
+      .where(eq(suppressionTable.workspaceId, this.workspaceId));
   }
 }
 
@@ -340,6 +384,7 @@ export class DeletionService {
     private readonly db: Db,
     private readonly audit: AuditLog,
     private readonly suppression: SuppressionService,
+    private readonly workspaceId: string,
   ) {}
 
   /**
@@ -354,7 +399,13 @@ export class DeletionService {
     leadsUpdated: number;
     identifiersDeleted: number;
   }> {
-    const person = (await this.db.select().from(personTable).where(eq(personTable.id, personId)).limit(1))[0];
+    const person = (
+      await this.db
+        .select()
+        .from(personTable)
+        .where(and(eq(personTable.id, personId), eq(personTable.workspaceId, this.workspaceId)))
+        .limit(1)
+    )[0];
     if (!person) throw new Error(`person ${personId} not found`);
 
     // A deletion is compliance-significant, so it is recorded against the run it affected as well
@@ -363,6 +414,7 @@ export class DeletionService {
     const requestId = newId();
     await this.db.insert(deletionRequestTable).values({
       id: requestId,
+      workspaceId: this.workspaceId,
       subjectType: 'person',
       subjectId: personId,
       requestedBy,
@@ -413,13 +465,20 @@ export class DeletionService {
 
   /** Removes a company, its people, and every claim about any of them. */
   async deleteCompany(companyId: string, requestedBy = 'local'): Promise<{ peopleDeleted: number; claimsDeleted: number }> {
-    const company = (await this.db.select().from(companyTable).where(eq(companyTable.id, companyId)).limit(1))[0];
+    const company = (
+      await this.db
+        .select()
+        .from(companyTable)
+        .where(and(eq(companyTable.id, companyId), eq(companyTable.workspaceId, this.workspaceId)))
+        .limit(1)
+    )[0];
     if (!company) throw new Error(`company ${companyId} not found`);
 
     const affectedRunId = company.runId;
     const requestId = newId();
     await this.db.insert(deletionRequestTable).values({
       id: requestId,
+      workspaceId: this.workspaceId,
       subjectType: 'company',
       subjectId: companyId,
       requestedBy,

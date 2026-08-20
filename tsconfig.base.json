@@ -21,6 +21,7 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
+      "@leadmoor/auth": ["packages/auth/src/index.ts"],
       "@leadmoor/claims": ["packages/claims/src/index.ts"],
       "@leadmoor/claims/*": ["packages/claims/src/*"],
       "@leadmoor/core": ["packages/core/src/index.ts"],

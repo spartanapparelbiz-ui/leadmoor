@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@leadmoor/auth':
+        specifier: workspace:*
+        version: link:packages/auth
       '@leadmoor/claims':
         specifier: workspace:*
         version: link:packages/claims
@@ -74,6 +77,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@leadmoor/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
       '@leadmoor/claims':
         specifier: workspace:*
         version: link:../../packages/claims
@@ -134,6 +140,18 @@ importers:
       '@leadmoor/runtime':
         specifier: workspace:*
         version: link:../../packages/runtime
+
+  packages/auth:
+    dependencies:
+      '@leadmoor/core':
+        specifier: workspace:*
+        version: link:../core
+      '@leadmoor/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: ^0.38.3
+        version: 0.38.4(@electric-sql/pglite@0.2.17)(@types/pg@8.23.1)(@types/react@19.2.18)(pg@8.23.0)(react@19.2.8)
 
   packages/claims:
     dependencies:

@@ -49,6 +49,9 @@
       ],
       "@leadmoor/export": [
         "../../packages/export/src/index.ts"
+      ],
+      "@leadmoor/auth": [
+        "../../packages/auth/src/index.ts"
       ]
     },
     "incremental": true

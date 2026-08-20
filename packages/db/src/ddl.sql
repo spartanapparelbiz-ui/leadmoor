@@ -2,6 +2,64 @@
 -- Kept hand-written (no codegen step) and covered by a drift test that asserts every table in
 -- schema.ts appears here.
 
+-- ── identity and workspaces ──────────────────────────────────────────────
+-- Every workspace-owned row carries workspace_id NOT NULL. Scoping is enforced in SQL by the
+-- repository layer and re-checked by the authorization guard, never by hiding things in the UI.
+
+CREATE TABLE IF NOT EXISTS app_user (
+  id             TEXT PRIMARY KEY,
+  email          TEXT NOT NULL,
+  email_lower    TEXT NOT NULL,
+  name           TEXT NOT NULL DEFAULT '',
+  password_hash  TEXT NOT NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS app_user_email_uniq ON app_user (email_lower);
+
+CREATE TABLE IF NOT EXISTS workspace (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  slug        TEXT NOT NULL,
+  created_by  TEXT REFERENCES app_user(id) ON DELETE SET NULL,
+  settings    JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workspace_slug_uniq ON workspace (slug);
+
+CREATE TABLE IF NOT EXISTS workspace_member (
+  id            TEXT PRIMARY KEY,
+  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  role          TEXT NOT NULL DEFAULT 'member',
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS workspace_member_uniq ON workspace_member (workspace_id, user_id);
+CREATE INDEX IF NOT EXISTS workspace_member_user_idx ON workspace_member (user_id);
+
+CREATE TABLE IF NOT EXISTS user_session (
+  id            TEXT PRIMARY KEY,
+  token_hash    TEXT NOT NULL,
+  user_id       TEXT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  workspace_id  TEXT REFERENCES workspace(id) ON DELETE SET NULL,
+  expires_at    TIMESTAMPTZ NOT NULL,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS user_session_token_uniq ON user_session (token_hash);
+CREATE INDEX IF NOT EXISTS user_session_user_idx ON user_session (user_id);
+
+CREATE TABLE IF NOT EXISTS saved_search (
+  id            TEXT PRIMARY KEY,
+  workspace_id  TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  spec          JSONB NOT NULL,
+  source_request TEXT NOT NULL DEFAULT '',
+  created_by    TEXT REFERENCES app_user(id) ON DELETE SET NULL,
+  last_run_id   TEXT,
+  last_run_at   TIMESTAMPTZ,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS saved_search_ws_idx ON saved_search (workspace_id, created_at);
+
 CREATE TABLE IF NOT EXISTS lead_request (
   id            TEXT PRIMARY KEY,
   raw_text      TEXT NOT NULL,
@@ -285,3 +343,31 @@ CREATE TABLE IF NOT EXISTS audit_log (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_run_idx ON audit_log (run_id, created_at);
+
+-- Workspace scoping applied to every owned table.
+ALTER TABLE lead_request ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS lead_request_ws_idx ON lead_request (workspace_id);
+ALTER TABLE lead_spec ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS lead_spec_ws_idx ON lead_spec (workspace_id);
+ALTER TABLE run ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS run_ws_idx ON run (workspace_id);
+ALTER TABLE company ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS company_ws_idx ON company (workspace_id);
+ALTER TABLE person ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS person_ws_idx ON person (workspace_id);
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS evidence_ws_idx ON evidence (workspace_id);
+ALTER TABLE claim ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS claim_ws_idx ON claim (workspace_id);
+ALTER TABLE lead ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS lead_ws_idx ON lead (workspace_id);
+ALTER TABLE suppression ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS suppression_ws_idx ON suppression (workspace_id);
+ALTER TABLE deletion_request ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS deletion_request_ws_idx ON deletion_request (workspace_id);
+ALTER TABLE export ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS export_ws_idx ON export (workspace_id);
+ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS audit_log_ws_idx ON audit_log (workspace_id);
+ALTER TABLE fetch_log ADD COLUMN IF NOT EXISTS workspace_id TEXT REFERENCES workspace(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS fetch_log_ws_idx ON fetch_log (workspace_id);

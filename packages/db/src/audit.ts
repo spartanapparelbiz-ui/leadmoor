@@ -47,7 +47,15 @@ export const AUDIT_ACTIONS = [
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
 export class AuditLog {
-  constructor(private readonly db: Db) {}
+  constructor(
+    private readonly db: Db,
+    private readonly workspaceId: string | null = null,
+  ) {}
+
+  /** An audit log bound to a workspace. Entries it writes are visible only inside it. */
+  forWorkspace(workspaceId: string): AuditLog {
+    return new AuditLog(this.db, workspaceId);
+  }
 
   async record(
     action: AuditAction,
@@ -55,6 +63,7 @@ export class AuditLog {
   ): Promise<void> {
     await this.db.insert(auditLog).values({
       id: newId(),
+      workspaceId: this.workspaceId,
       runId: opts.runId ?? null,
       action,
       subject: opts.subject ?? null,

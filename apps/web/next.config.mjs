@@ -3,6 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   // Internal packages are consumed as TypeScript source; Next compiles them with the app.
   transpilePackages: [
+    '@leadmoor/auth',
     '@leadmoor/core',
     '@leadmoor/db',
     '@leadmoor/policy',

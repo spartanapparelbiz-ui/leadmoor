@@ -50,6 +50,10 @@ export interface RunServices {
   runHosts: RunHostAllowlist;
   policy: PolicyEngine;
   fetcher: HttpFetcher;
+  /** Workspace-bound copies, so everything this run writes is scoped without a call site opting in. */
+  evidence: EvidenceStore;
+  claims: ClaimEngine;
+  audit: AuditLog;
   discovery: DiscoveryConnector[];
   siteEvidence: CompanySiteEvidence;
   email: EmailEnrichmentProvider;
@@ -116,11 +120,16 @@ export class Services {
   }
 
   /** Builds the per-run service set, including the budget governor and run-scoped host allowlist. */
-  forRun(args: { budget: BudgetGovernor; runHosts?: RunHostAllowlist }): RunServices {
+  forRun(args: { budget: BudgetGovernor; runHosts?: RunHostAllowlist; workspaceId: string }): RunServices {
     const runHosts = args.runHosts ?? createRunHostAllowlist();
     const policy = this.policyFor(runHosts);
 
-    const fetcher = new HttpFetcher(this.db, policy, this.evidence, this.audit, {
+    const evidence = this.evidence.forWorkspace(args.workspaceId);
+    const audit = this.audit.forWorkspace(args.workspaceId);
+    const claims = this.claims.forWorkspace(args.workspaceId);
+
+    const fetcher = new HttpFetcher(this.db, policy, evidence, audit, {
+      workspaceId: args.workspaceId,
       logger: this.logger,
       transport: this.options.transport,
       onBeforeFetch: () => !args.budget.isExhausted(),
@@ -131,13 +140,13 @@ export class Services {
       new ExaSearchProvider(fetcher, this.env),
     ]);
 
-    const siteEvidence = new CompanySiteEvidence(fetcher, this.evidence);
+    const siteEvidence = new CompanySiteEvidence(fetcher, evidence);
 
     const email: EmailEnrichmentProvider =
       this.env.EMAIL_ENRICHMENT_PROVIDER === 'none'
         ? new UnavailableEmailProvider()
         : new PublishedEmailProvider(async (runId, companyId) => {
-            const all = await this.evidence.listForRun(runId);
+            const all = await evidence.listForRun(runId);
             return all.filter((d) => (d.metadata as { companyId?: string }).companyId === companyId);
           });
 
@@ -146,6 +155,9 @@ export class Services {
       runHosts,
       policy,
       fetcher,
+      evidence,
+      claims,
+      audit,
       discovery: [
         new SecEdgarDiscovery(fetcher),
         new GitHubDiscovery(fetcher, this.env),

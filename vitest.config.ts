@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@leadmoor/core': pkg('core'),
+      '@leadmoor/auth': pkg('auth'),
       '@leadmoor/claims': pkg('claims'),
       '@leadmoor/db': pkg('db'),
       '@leadmoor/policy': pkg('policy'),
