@@ -1,0 +1,17 @@
+{
+  "name": "@leadmoor/connectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "dependencies": {
+    "@leadmoor/core": "workspace:*",
+    "@leadmoor/db": "workspace:*",
+    "@leadmoor/evidence": "workspace:*",
+    "@leadmoor/policy": "workspace:*",
+    "drizzle-orm": "^0.38.3",
+    "zod": "^3.24.1"
+  }
+}

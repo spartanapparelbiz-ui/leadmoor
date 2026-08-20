@@ -33,7 +33,14 @@
     "drizzle-orm": "^0.38.3",
     "zod": "^3.24.1",
     "@leadmoor/policy": "workspace:*",
-    "@leadmoor/evidence": "workspace:*"
+    "@leadmoor/evidence": "workspace:*",
+    "@leadmoor/claims": "workspace:*",
+    "@leadmoor/connectors": "workspace:*",
+    "@leadmoor/resolution": "workspace:*",
+    "@leadmoor/llm": "workspace:*",
+    "@leadmoor/scoring": "workspace:*",
+    "@leadmoor/runtime": "workspace:*",
+    "@leadmoor/export": "workspace:*"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

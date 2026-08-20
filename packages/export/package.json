@@ -1,0 +1,16 @@
+{
+  "name": "@leadmoor/export",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "dependencies": {
+    "@leadmoor/claims": "workspace:*",
+    "@leadmoor/core": "workspace:*",
+    "@leadmoor/db": "workspace:*",
+    "@leadmoor/policy": "workspace:*",
+    "drizzle-orm": "^0.38.3"
+  }
+}

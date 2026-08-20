@@ -6,3 +6,4 @@ export * from './evidence.js';
 export * from './claim.js';
 export * from './verdict.js';
 export * from './run.js';
+export * from './logger.js';
